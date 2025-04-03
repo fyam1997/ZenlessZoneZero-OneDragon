@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "audioread==3.0.1",
+    "black>=25.1.0",
     "certifi==2024.7.4",
     "cffi==1.17.0",
     "charset-normalizer==3.3.2",
@@ -89,4 +90,5 @@ dev-ext = [
     "pip-tools==7.4.1",
     "polib==1.2.0",
     "pyinstaller==6.7.0",
+    "pytest>=8.3.5",
 ]
