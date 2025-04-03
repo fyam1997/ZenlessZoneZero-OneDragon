@@ -156,7 +156,7 @@ class CheckCodeRunner(CheckRunnerBase):
         is_latest, msg = self.ctx.git_service.is_current_branch_latest()
         if msg in ["与远程分支不一致"]:
             self.need_update.emit(True)
-        if msg not in ["获取远程代码失败"]:
+        elif msg not in ["获取远程代码失败"]:
             self.need_update.emit(not is_latest)
 
 class CheckVenvRunner(CheckRunnerBase):
@@ -287,7 +287,7 @@ class HomeInterface(VerticalScrollInterface):
             self._show_info_bar("代码已是最新版本", "Enjoy it & have fun!")
             return
         else :
-            self._show_info_bar("有新版本啦", "稍安勿躁~")
+            self._show_info_bar("Origin repo updated", "稍安勿躁~")
         if self.ctx.env_config.auto_update:
             result, msg = self.ctx.git_service.fetch_latest_code()
             if result:

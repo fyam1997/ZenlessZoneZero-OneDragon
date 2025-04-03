@@ -1,10 +1,9 @@
-import time
-
 import os
 import shutil
+import time
 from typing import Optional, Callable, List, Tuple
 
-from one_dragon.envs.env_config import DEFAULT_ENV_PATH, DEFAULT_GIT_DIR_PATH, ProxyTypeEnum, EnvConfig, \
+from one_dragon.envs.env_config import DEFAULT_ENV_PATH, DEFAULT_GIT_DIR_PATH, EnvConfig, \
     RepositoryTypeEnum, GitMethodEnum
 from one_dragon.envs.project_config import ProjectConfig
 from one_dragon.utils import http_utils, cmd_utils, file_utils, os_utils
@@ -184,12 +183,13 @@ class GitService:
         msg = '克隆仓库成功' if success else '克隆仓库失败'
         return success, msg
 
-    def fetch_remote_branch(self) -> Tuple[bool, str]:
+    def fetch_remote_branch(self, remote_name: str = 'origin') -> Tuple[bool, str]:
         """
         获取远程分支代码
         """
         log.info('获取远程代码')
-        fetch_result = cmd_utils.run_command([self.env_config.git_path, 'fetch', 'origin', self.env_config.git_branch])
+        fetch_result = cmd_utils.run_command(
+            [self.env_config.git_path, 'fetch', remote_name, self.env_config.git_branch])
         if fetch_result is None:
             msg = '获取远程代码失败'
             log.error(msg)
@@ -293,9 +293,12 @@ class GitService:
         fetch, msg = self.fetch_remote_branch()
         if not fetch:
             return fetch, msg
+        fetch, msg = self.fetch_remote_branch('fork')
+        if not fetch:
+            return fetch, msg
+
         log.info('检测当前代码是否最新')
-        diff_result = cmd_utils.run_command([self.env_config.git_path, 'diff', '--name-only', 'HEAD', f'origin/{self.env_config.git_branch}'])
-        if len(diff_result.strip()) == 0:
+        if self.is_branch_contained(f'origin/{self.env_config.git_branch}', 'HEAD'):
             return True, ''
         else:
             return False, '与远程分支不一致'
@@ -411,3 +414,21 @@ class GitService:
         """
         log_list = self.fetch_page_commit(0, 1)
         return None if len(log_list) == 0 else log_list[0].commit_id
+
+
+    @staticmethod
+    def is_branch_contained(base_branch: str, target_branch: str) -> bool:
+        """
+        Check if all commits from base_branch are contained in target_branch.
+
+        Args:
+            base_branch (str): The branch to check if it is contained in target_branch.
+            target_branch (str): The branch that should contain all commits of base_branch.
+
+        Returns:
+            bool: True if base_branch is fully contained in target_branch, False otherwise.
+        """
+        result = cmd_utils.run_command(
+            ["git", "merge-base", "--is-ancestor", base_branch, target_branch],
+        )
+        return result is not None
