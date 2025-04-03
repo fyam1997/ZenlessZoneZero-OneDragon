@@ -1,3 +1,9 @@
+## ZenlessZoneZero-OneDragon-fork
+
+This project is forked from [ZenlessZoneZero-OneDragon](https://github.com/DoctorReid/ZenlessZoneZero-OneDragon)
+
+[Readme](./README_ORIGIN.md)
+
 ### Hints
 
 - set `src` as Sources in your Pycharm project structure setting, or add absolute path of `src` into PYTHONPATH if you
