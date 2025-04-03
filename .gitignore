@@ -8,8 +8,8 @@ deploy/
 recording.jsonl
 
 # 子模块
-test/
-zzz-od-test/
+#test/
+#zzz-od-test/
 
 # 用户独有的配置文件
 env.bat
