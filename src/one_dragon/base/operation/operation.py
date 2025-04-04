@@ -1,10 +1,10 @@
-import time
-
-import cv2
 import difflib
 import inspect
-from cv2.typing import MatLike
+import time
 from typing import Optional, ClassVar, Callable, List, Any, Tuple
+
+import cv2
+from cv2.typing import MatLike
 
 from one_dragon.base.geometry.point import Point
 from one_dragon.base.matcher.match_result import MatchResultList
@@ -18,7 +18,9 @@ from one_dragon.base.screen.screen_area import ScreenArea
 from one_dragon.base.screen.screen_utils import OcrClickResultEnum, FindAreaResultEnum
 from one_dragon.utils import debug_utils, cv2_utils, str_utils
 from one_dragon.utils.i18_utils import coalesce_gt, gt
-from one_dragon.utils.log_utils import log
+from one_dragon.utils.log_utils import log, get_logger
+
+operation_logger = get_logger("operation_log.txt", "operation_log")
 
 
 class Operation(OperationBase):
@@ -318,6 +320,7 @@ class Operation(OperationBase):
                 else:
                     log.error('%s 执行出错', self.display_name, exc_info=True)
 
+            operation_logger.info("")
             # 重试或者等待的
             if round_result.result == OperationRoundResultEnum.RETRY:
                 self.node_retry_times += 1
@@ -334,6 +337,7 @@ class Operation(OperationBase):
             # 成功或者失败的 找下一个节点
             next_node = self._get_next_node(round_result)
             if next_node is None:  # 没有下一个节点了 当前返回什么就是什么
+                operation_logger.info(f"no next node")
                 if round_result.result == OperationRoundResultEnum.SUCCESS:
                     op_result = self.op_success(round_result.status, round_result.data)
                     break
@@ -345,6 +349,7 @@ class Operation(OperationBase):
                     op_result = self.op_fail(round_result.status)
                     break
             else:  # 继续下一个节点
+                operation_logger.info(f"next node {next_node.cn} {next_node.func}")
                 self._current_node = next_node
                 self._reset_status_for_new_node()  # 充值状态
                 continue
@@ -607,6 +612,17 @@ class Operation(OperationBase):
                                      until_find_all: List[Tuple[str, str]] = None,
                                      until_not_find_all: List[Tuple[str, str]] = None,
                                      ) -> OperationRoundResult:
+        result = self._round_by_find_and_click_area(screen, screen_name, area_name, success_wait, success_wait_round,
+                                                  retry_wait, retry_wait_round, until_find_all, until_not_find_all)
+        operation_logger.info(f"round_by_find_and_click_area {screen_name} {area_name} {result.status} {result.result}")
+        return result
+
+    def _round_by_find_and_click_area(self, screen: MatLike = None, screen_name: str = None, area_name: str = None,
+                                      success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
+                                      retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None,
+                                      until_find_all: List[Tuple[str, str]] = None,
+                                      until_not_find_all: List[Tuple[str, str]] = None,
+                                      ) -> OperationRoundResult:
         """
         是否能找到目标区域 并进行点击
         :param screen: 屏幕截图
@@ -669,6 +685,13 @@ class Operation(OperationBase):
                            success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
                            retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None
                            ) -> OperationRoundResult:
+        result = self._round_by_find_area(screen, screen_name, area_name, success_wait, success_wait_round, retry_wait, retry_wait_round)
+        operation_logger.info(f"round_by_find_area {screen_name} {area_name} {result.status} {result.result}")
+        return result
+    def _round_by_find_area(self, screen: MatLike, screen_name: str, area_name: str,
+                           success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
+                           retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None
+                           ) -> OperationRoundResult:
         """
         是否能找到目标区域
         :param screen: 屏幕截图
@@ -689,6 +712,15 @@ class Operation(OperationBase):
             return self.round_retry(status=f'未找到 {area_name}', wait=retry_wait, wait_round_time=retry_wait_round)
 
     def round_by_click_area(
+            self, screen_name: str, area_name: str, click_left_top: bool = False,
+            success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
+            retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None
+    ) -> OperationRoundResult:
+        result = self._round_by_click_area(screen_name, area_name, click_left_top, success_wait, success_wait_round, retry_wait, retry_wait_round)
+        operation_logger.info(f"round_by_click_area {screen_name} {area_name} {result.status} {result.result}")
+        return result
+
+    def _round_by_click_area(
             self, screen_name: str, area_name: str, click_left_top: bool = False,
             success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
             retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None
