@@ -92,3 +92,6 @@ dev-ext = [
     "pyinstaller==6.7.0",
     "pytest>=8.3.5",
 ]
+gamepad = [
+    "vgamepad==0.1.0",
+]

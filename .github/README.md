@@ -3,6 +3,7 @@
 This project is forked from [ZenlessZoneZero-OneDragon](https://github.com/DoctorReid/ZenlessZoneZero-OneDragon)
 
 [Readme](./README_ORIGIN.md)
+[Sync main repo](./uv-migrate.md)
 
 ### Hints
 

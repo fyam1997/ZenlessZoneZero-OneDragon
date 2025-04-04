@@ -22,6 +22,10 @@ uv sync --group dev
 uv sync --group dev-ext
 ```
 
+```shell
+uv sync --group gamepad
+```
+
 ## Sync from main repo
 
 ```shell
@@ -34,4 +38,5 @@ uv init --python=3.11.9
 uv add -r .\requirements-prod.txt
 uv add -r .\requirements-dev.txt --dev
 uv add -r .\requirements-dev-ext.txt --group dev-ext
+uv add -r .\requirements-gamepad.txt --group gamepad
 ```
