@@ -1,5 +1,6 @@
 from typing import List
 
+from one_dragon.base.operation.application_run_record import AppRunRecord
 from one_dragon.base.operation.one_dragon_app import OneDragonApp
 from zzz_od.application.charge_plan.charge_plan_app import ChargePlanApp
 from zzz_od.application.city_fund.city_fund_app import CityFundApp
@@ -82,6 +83,8 @@ def __debug():
 
     ctx.btn_listener.stop()
 
+    from zzz_od.application.zzz_run_record_dialog import show_app_run_record
+    show_app_run_record(app)
 
 if __name__ == '__main__':
     __debug()
