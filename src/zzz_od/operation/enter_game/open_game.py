@@ -27,9 +27,10 @@ class OpenGame(Operation):
         full_path = self.ctx.game_account_config.game_path
         dir_path = os.path.dirname(full_path)
         exe_name = os.path.basename(full_path)
-        log.info('尝试自动启动游戏 路径为 %s', full_path)
+        # log.info('尝试自动启动游戏 路径为 %s', full_path)
         # 获取文件夹路径
         command = f'cmd /c "start "" /d "{dir_path}" "{exe_name}"'
+        command = f'cmd /c "start "" "steam://rungameid/18261217455244312576"'
         if self.ctx.game_config.launch_argument:
             screen_size = self.ctx.game_config.screen_size
             screen_width = screen_size.split('x')[0]
