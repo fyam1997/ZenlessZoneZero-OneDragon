@@ -1,6 +1,7 @@
 from one_dragon.base.operation.application_run_record import AppRunRecord
 from zzz_od.application.zzz_application import ZApplication
 from zzz_od.application.zzz_one_dragon_app import ZOneDragonApp
+from zzz_od.context.zzz_context import ZContext
 
 
 def get_app_run_records(app: ZOneDragonApp):
@@ -75,3 +76,14 @@ def show_app_run_record(app: ZOneDragonApp):
 
     window.show()
     qt_app.exec()
+
+
+def demo():
+    ctx = ZContext()
+    ctx.init_by_config()
+    app = ZOneDragonApp(ctx)
+    show_app_run_record(app)
+
+
+if __name__ == '__main__':
+    demo()
