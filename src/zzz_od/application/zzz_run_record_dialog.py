@@ -20,13 +20,7 @@ def get_app_run_records(app: ZOneDragonApp):
                 "run_time": record.run_time,
             })
 
-    order = [
-        AppRunRecord.STATUS_FAIL,
-        AppRunRecord.STATUS_RUNNING,
-        AppRunRecord.STATUS_SUCCESS,
-        AppRunRecord.STATUS_WAIT,
-    ]
-    records.sort(key=lambda x: order.index(x["status"]))
+    records.sort(key=lambda x: x["run_time"], reverse=True)
     return records
 
 
