@@ -35,7 +35,11 @@ class LostVoidChooseCommon(ZOperation):
         screen_name = self.check_and_update_current_screen()
         if screen_name != '迷失之地-通用选择':
             # 进入本指令之前 有可能识别错画面
-            return self.round_retry(status=f'当前画面 {screen_name}', wait=1)
+            result = self.round_by_find_area(screen, '迷失之地-通用选择', '文本-详情')
+            if result.is_success and screen_name == '迷失之地-无详情选择':
+                self.ctx.screen_loader.update_current_screen_name('迷失之地-通用选择')
+            else:
+                return self.round_retry(status=f'当前画面 {screen_name}', wait=1)
 
         result = self.round_by_find_area(screen, '迷失之地-通用选择', '按钮-刷新')
         can_refresh = result.is_success
@@ -92,7 +96,7 @@ class LostVoidChooseCommon(ZOperation):
         @return: Tuple[识别到的武备的位置, 已经选择的位置]
         """
         is_gear: bool = False  # 区域-武备名称
-        is_artifact: bool = False # 区域-藏品名称
+        is_artifact: bool = False  # 区域-藏品名称
         self.to_choose_num = 0
 
         area = self.ctx.screen_loader.get_area('迷失之地-通用选择', '区域-标题')
@@ -105,31 +109,35 @@ class LostVoidChooseCommon(ZOperation):
             gt('请选择1个武备'),
             gt('获得武备'),
             gt('武备已升级'),
-            gt('获得战利品')
+            gt('获得战利品'),
+            gt('请选择1张卡牌'),
         ]
 
         for ocr_word in ocr_result.keys():
             idx = str_utils.find_best_match_by_difflib(ocr_word, target_result_list)
             if idx is None:
                 self.to_choose_num = 0
-            elif idx == 0:
+            elif idx == 0:  # 请选择1项
                 # 1.5 更新后 武备和普通鸣徽都是这个标题
                 self.to_choose_num = 1
-            elif idx == 1:
+            elif idx == 1:  # 请选择2项
                 is_artifact = True
                 self.to_choose_num = 2
-            elif idx == 2:
+            elif idx == 2:  # 请选择1个武备
                 is_gear = True
                 self.to_choose_num = 1
-            elif idx == 3:
+            elif idx == 3:  # 获得武备
                 is_gear = True
                 self.to_choose_num = 0
-            elif idx == 4:
+            elif idx == 4:  # 武备已升级
                 is_gear = True
                 self.to_choose_num = 0
-            elif idx == 5:
+            elif idx == 5:  # 获得战利品
                 is_artifact = True
                 self.to_choose_num = 0
+            elif idx == 6:  # 请选择1张卡牌
+                is_artifact = True
+                self.to_choose_num = 1
 
         if self.to_choose_num == 0:  # 不需要选择的
             return [], []

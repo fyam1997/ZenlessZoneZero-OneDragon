@@ -36,6 +36,7 @@ class ZOneDragonApp(OneDragonApp, ZApplication):
                               op_to_switch_account=op_to_switch_account)
 
     def get_app_list(self) -> List[ZApplication]:
+        from zzz_od.application.notify.notify_app import NotifyApp
         return [
             RedemptionCodeApp(self.ctx),
             RandomPlayApp(self.ctx),
@@ -52,6 +53,7 @@ class ZOneDragonApp(OneDragonApp, ZApplication):
             EmailApp(self.ctx),
             DriveDiscDismantleApp(self.ctx),
             LifeOnLineApp(self.ctx),
+            NotifyApp(self.ctx),
         ]
 
 
