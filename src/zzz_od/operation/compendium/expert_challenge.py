@@ -26,6 +26,7 @@ class ExpertChallenge(ZOperation):
 
     STATUS_CHARGE_NOT_ENOUGH: ClassVar[str] = '电量不足'
     STATUS_CHARGE_ENOUGH: ClassVar[str] = '电量充足'
+    STATUS_FIGHT_TIMEOUT: ClassVar[str] = '战斗超时'
 
     def __init__(self, ctx: ZContext, plan: ChargePlanItem,
                  can_run_times: Optional[int] = None,
@@ -61,6 +62,22 @@ class ExpertChallenge(ZOperation):
         )
 
     @node_from(from_name='等待入口加载')
+    @operation_node(name='关闭燃竭模式')
+    def close_burnout_mode(self):
+        screen = self.screenshot()
+
+        result = self.round_by_find_and_click_area(screen, '恶名狩猎', '按钮-深度追猎-确认')
+        if result.is_success:
+            return self.round_wait(result.status, wait=1)
+
+        result = self.round_by_find_area(screen, '恶名狩猎', '按钮-深度追猎-ON')
+        if result.is_success:
+            self.round_by_click_area('恶名狩猎', '按钮-深度追猎-ON')
+            return self.round_retry(wait=1)
+        else:
+            return self.round_success()
+
+    @node_from(from_name='关闭燃竭模式')
     @operation_node(name='识别电量')
     def check_charge(self) -> OperationRoundResult:
         if not self.need_check_power:
@@ -202,9 +219,11 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='战斗超时')
     @operation_node(name='点击挑战结果退出')
     def click_result_exit(self) -> OperationRoundResult:
-        return self.round_by_find_and_click_area(screen_name='战斗-挑战结果-失败', area_name='按钮-退出',
-                                                 until_not_find_all=[('战斗-挑战结果-失败', '按钮-退出')],
-                                                 success_wait=1, retry_wait=1)
+        result = self.round_by_find_and_click_area(screen_name='战斗-挑战结果-失败', area_name='按钮-退出',
+                                                   until_not_find_all=[('战斗-挑战结果-失败', '按钮-退出')],
+                                                   success_wait=1, retry_wait=1)
+        if result.is_success:
+            return self.round_fail(status=ExpertChallenge.STATUS_FIGHT_TIMEOUT)
 
     def handle_pause(self):
         if self.auto_op is not None:
@@ -226,7 +245,7 @@ def __debug_charge():
     """
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     from one_dragon.utils import debug_utils
     screen = debug_utils.get_debug_image('_1742622386361')
     area = ctx.screen_loader.get_area('专业挑战室', '剩余电量')
@@ -238,7 +257,7 @@ def __debug_charge():
 def __debug():
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     ctx.start_running()
     op = ExpertChallenge(ctx, ChargePlanItem(
         category_name='专业挑战室',

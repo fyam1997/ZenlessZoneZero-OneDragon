@@ -28,8 +28,11 @@ from zzz_od.screen_area.screen_normal_world import ScreenNormalWorldEnum
 class CombatSimulation(ZOperation):
 
     STATUS_NEED_TYPE: ClassVar[str] = '需选择类型'
+    STATUS_CHOOSE_SUCCESS: ClassVar[str] = '选择成功'
+    STATUS_CHOOSE_FAIL: ClassVar[str] = '选择失败'
     STATUS_CHARGE_NOT_ENOUGH: ClassVar[str] = '电量不足'
     STATUS_CHARGE_ENOUGH: ClassVar[str] = '电量充足'
+    STATUS_FIGHT_TIMEOUT: ClassVar[str] = '战斗超时'
 
     def __init__(self, ctx: ZContext, plan: ChargePlanItem,
                  can_run_times: Optional[int] = None,
@@ -113,31 +116,56 @@ class CombatSimulation(ZOperation):
     @operation_node(name='选择副本')
     def choose_mission(self) -> OperationRoundResult:
         screen = self.screenshot()
-        area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表')
-        part = cv2_utils.crop_image_only(screen, area.rect)
+        if self.plan.mission_name == '代理人方案培养':
+            target_point: Optional[Point] = None
 
-        target_point: Optional[Point] = None
-        ocr_result_map = self.ctx.ocr.run_ocr(part)
-        target_list = []
-        mrl_list = []
-        for ocr_result, mrl in ocr_result_map.items():
-            target_list.append(ocr_result)
-            mrl_list.append(mrl)
+            area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表顶部')
+            part = cv2_utils.crop_image_only(screen, area.rect)
 
-        results = difflib.get_close_matches(gt(self.plan.mission_name), target_list, n=1)
+            # 直接获取点击位置
+            click_pos = cv2_utils.find_character_avatar_center_with_offset(
+                part, 
+                area_offset=(area.left_top.x, area.left_top.y),
+                click_offset=(0, 80),  # 向下偏移80像素，用于点击头像下方的区域
+                min_area=800
+            )
+            
+            if click_pos:
+                target_point = Point(click_pos[0], click_pos[1])
+                log.info(f'找到代理人目标，点击位置: {target_point}')
 
-        if results is not None and len(results) > 0:
-            idx = target_list.index(results[0])
-            mrl = mrl_list[idx]
-            target_point = area.left_top + mrl.max + Point(0, 50)
+            if target_point is None:
+                return self.round_success(status=CombatSimulation.STATUS_CHOOSE_FAIL)
+
+            if target_point is None:
+                return self.round_success(status=CombatSimulation.STATUS_CHOOSE_FAIL)
+
+        else:
+            area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表')
+            part = cv2_utils.crop_image_only(screen, area.rect)
+
+            target_point: Optional[Point] = None
+            ocr_result_map = self.ctx.ocr.run_ocr(part)
+            target_list = []
+            mrl_list = []
+            for ocr_result, mrl in ocr_result_map.items():
+                target_list.append(ocr_result)
+                mrl_list.append(mrl)
+
+            results = difflib.get_close_matches(self.plan.mission_name, target_list, n=1)
+
+            if results is not None and len(results) > 0:
+                idx = target_list.index(results[0])
+                mrl = mrl_list[idx]
+                target_point = area.left_top + mrl.max + Point(0, 50)
 
         if target_point is None:
             return self.round_retry(status='找不到 %s' % self.plan.mission_name, wait=1)
 
         click = self.ctx.controller.click(target_point)
-        return self.round_success(wait=1)
+        return self.round_success(status=CombatSimulation.STATUS_CHOOSE_SUCCESS, wait=1)
 
-    @node_from(from_name='选择副本')
+    @node_from(from_name='选择副本', status=STATUS_CHOOSE_SUCCESS)
     @operation_node(name='进入选择数量')
     def click_card(self) -> OperationRoundResult:
         if self.plan.card_num == CardNumEnum.DEFAULT.value.value:
@@ -313,7 +341,9 @@ class CombatSimulation(ZOperation):
     def battle_timeout(self) -> OperationRoundResult:
         auto_battle_utils.stop_running(self.auto_op)
         op = ExitInBattle(self.ctx, '画面-通用', '左上角-街区')
-        return self.round_by_op_result(op.execute())
+        result = self.round_by_op_result(op.execute())
+        if result.is_success:
+            return self.round_fail(status=CombatSimulation.STATUS_FIGHT_TIMEOUT)
 
     def handle_pause(self):
         if self.auto_op is not None:
@@ -332,7 +362,7 @@ class CombatSimulation(ZOperation):
 def __debug_coffee():
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     ctx.start_running()
     chosen_coffee = ctx.compendium_service.name_2_coffee['麦草拿提']
     charge_plan = ChargePlanItem(
@@ -355,7 +385,7 @@ def __debug_charge():
     """
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     from one_dragon.utils import debug_utils
     screen = debug_utils.get_debug_image('422708014-40e6c6d2-625f-4488-9e13-f17bdca02878')
     area = ctx.screen_loader.get_area('实战模拟室', '剩余电量')
@@ -366,7 +396,7 @@ def __debug_charge():
 def __debug():
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     ctx.start_running()
     charge_plan = ChargePlanItem(
         tab_name='训练',

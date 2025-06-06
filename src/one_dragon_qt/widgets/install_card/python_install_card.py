@@ -15,7 +15,7 @@ class PythonInstallCard(WithExistedInstallCard):
             self,
             ctx=ctx,
             title_cn='Python虚拟环境',
-            install_method=ctx.python_service.install_default_python_venv,
+            install_method=ctx.python_service.uv_install_python_venv,
         )
 
     def get_existed_os_path(self) -> Optional[str]:
@@ -67,7 +67,7 @@ class PythonInstallCard(WithExistedInstallCard):
             if python_version is None:
                 icon = FluentIcon.INFO.icon(color=FluentThemeColor.RED.value)
                 msg = gt('无法获取Python版本', 'ui') + ' ' + python_path
-            elif python_version != self.ctx.project_config.python_version:
+            elif python_version != self.ctx.project_config.python_version and python_version != self.ctx.project_config.uv_python_version:
                 icon = FluentIcon.INFO.icon(color=FluentThemeColor.GOLD.value)
                 msg = (f"{gt('当前版本', 'ui')}: {python_version}; {gt('建议版本', 'ui')}: {self.ctx.project_config.python_version}"
                        + ' ' + python_path)

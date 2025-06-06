@@ -1,5 +1,5 @@
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QHBoxLayout
 from qfluentwidgets import PrimaryPushButton, FluentIcon, CaptionLabel, LineEdit, ToolButton, PushButton, Dialog
 from typing import Optional, List
 
@@ -221,7 +221,7 @@ class ChargePlanCard(MultiLineSettingCard):
 
     def _on_move_up_clicked(self) -> None:
         self.move_up.emit(self.idx)
-    
+
     def _on_move_top_clicked(self) -> None:
         self.move_top.emit(self.idx)
 
@@ -264,10 +264,23 @@ class ChargePlanInterface(VerticalScrollInterface):
     def get_content_widget(self) -> QWidget:
         self.content_widget = Column()
 
+        # 创建水平布局容器
+        switch_container = QWidget()
+        switch_layout = QHBoxLayout(switch_container)
+        switch_layout.setContentsMargins(0, 0, 0, 0)
+
         self.loop_opt = SwitchSettingCard(icon=FluentIcon.SYNC, title='循环执行', content='开启时 会循环执行到体力用尽')
-        self.loop_opt.setValue(self.ctx.charge_plan_config.loop)
-        self.loop_opt.value_changed.connect(self._on_loop_changed)
-        self.content_widget.add_widget(self.loop_opt)
+        self.loop_opt.value_changed.connect(lambda value: self._on_config_changed(value, 'loop'))
+
+        self.skip_plan_opt = SwitchSettingCard(icon=FluentIcon.FLAG, title='跳过计划', content='开启时 自动跳过体力不足的计划')
+        self.skip_plan_opt.value_changed.connect(lambda value: self._on_config_changed(value, 'skip_plan'))
+
+        # 将两个开关添加到水平布局中
+        switch_layout.addWidget(self.loop_opt)
+        switch_layout.addWidget(self.skip_plan_opt)
+
+        # 将容器添加到主布局中
+        self.content_widget.add_widget(switch_container)
 
         self.cancel_btn = PushButton(icon=FluentIcon.CANCEL, text='撤销')
         self.cancel_btn.setEnabled(False)
@@ -290,6 +303,10 @@ class ChargePlanInterface(VerticalScrollInterface):
         ], icon=FluentIcon.DELETE, title='删除体力计划')
         self.content_widget.add_widget(self.remove_setting_card)
 
+        self.coupon_opt = SwitchSettingCard(icon=FluentIcon.GAME, title='使用家政券', content='运行定期清剿时使用家政券')
+        self.coupon_opt.value_changed.connect(lambda value: self._on_config_changed(value, 'use_coupon'))
+        self.content_widget.add_widget(self.coupon_opt)
+
         self.card_list: List[ChargePlanCard] = []
 
         self.plus_btn = PrimaryPushButton(text='新增')
@@ -307,6 +324,10 @@ class ChargePlanInterface(VerticalScrollInterface):
 
     def update_plan_list_display(self):
         plan_list = self.ctx.charge_plan_config.plan_list
+
+        self.loop_opt.setValue(self.ctx.charge_plan_config.loop)
+        self.skip_plan_opt.setValue(self.ctx.charge_plan_config.skip_plan)
+        self.coupon_opt.setValue(self.ctx.charge_plan_config.use_coupon)
 
         if len(plan_list) > len(self.card_list):
             self.content_widget.remove_widget(self.plus_btn)
@@ -358,9 +379,10 @@ class ChargePlanInterface(VerticalScrollInterface):
         self.ctx.charge_plan_config.move_top(idx)
         self.update_plan_list_display()
 
-    def _on_loop_changed(self, new_value: bool) -> None:
-        self.ctx.charge_plan_config.loop = new_value
-    
+    def _on_config_changed(self, new_value: bool, config_item: str) -> None:
+        setattr(self.ctx.charge_plan_config, config_item, new_value)
+        self.ctx.charge_plan_config.save()
+
     def _on_remove_all_completed_clicked(self) -> None:
         dialog = Dialog('警告', '是否删除所有已完成的体力计划？', self)
         dialog.setTitleBarVisible(False)
@@ -374,7 +396,7 @@ class ChargePlanInterface(VerticalScrollInterface):
             self.ctx.charge_plan_config.save()
             self.cancel_btn.setEnabled(True)
         self.update_plan_list_display()
-    
+
     def _on_remove_all_clicked(self) -> None:
         dialog = Dialog('警告', '是否删除所有体力计划？', self)
         dialog.setTitleBarVisible(False)
@@ -386,7 +408,7 @@ class ChargePlanInterface(VerticalScrollInterface):
             self.ctx.charge_plan_config.save()
             self.cancel_btn.setEnabled(True)
         self.update_plan_list_display()
-    
+
     def _on_cancel_clicked(self) -> None:
         self.ctx.charge_plan_config.plan_list = self.plan_list_backup.copy()
         self.cancel_btn.setEnabled(False)

@@ -18,6 +18,7 @@ from zzz_od.context.zzz_context import ZContext
 from zzz_od.operation.challenge_mission.check_next_after_battle import ChooseNextOrFinishAfterBattle
 from zzz_od.operation.challenge_mission.exit_in_battle import ExitInBattle
 from zzz_od.operation.choose_predefined_team import ChoosePredefinedTeam
+from zzz_od.operation.compendium.coupon import Coupon
 from zzz_od.operation.deploy import Deploy
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.screen_area.screen_normal_world import ScreenNormalWorldEnum
@@ -27,6 +28,7 @@ class RoutineCleanup(ZOperation):
 
     STATUS_CHARGE_NOT_ENOUGH: ClassVar[str] = '电量不足'
     STATUS_CHARGE_ENOUGH: ClassVar[str] = '电量充足'
+    STATUS_FIGHT_TIMEOUT: ClassVar[str] = '战斗超时'
 
     def __init__(self, ctx: ZContext, plan: ChargePlanItem,
                  can_run_times: Optional[int] = None,
@@ -88,6 +90,16 @@ class RoutineCleanup(ZOperation):
         return self.round_success(wait=1)
 
     @node_from(from_name='等待入口加载')
+    @operation_node(name='处理家政券')
+    def handle_coupon(self) -> OperationRoundResult:
+        op = Coupon(self.ctx, self.plan)
+        if self.ctx.charge_plan_config.use_coupon:
+            return self.round_by_op_result(op.execute())
+        else:
+            return self.round_success(Coupon.STATUS_CONTINUE_RUN_WITH_CHARGE)
+
+    @node_from(from_name='处理家政券', success=False)
+    @node_from(from_name='处理家政券', status=Coupon.STATUS_CONTINUE_RUN_WITH_CHARGE)
     @operation_node(name='识别电量')
     def check_charge(self) -> OperationRoundResult:
         if not self.need_check_power:
@@ -228,9 +240,11 @@ class RoutineCleanup(ZOperation):
     @node_from(from_name='战斗超时')
     @operation_node(name='点击挑战结果退出')
     def click_result_exit(self) -> OperationRoundResult:
-        return self.round_by_find_and_click_area(screen_name='战斗-挑战结果-失败', area_name='按钮-退出',
-                                                 until_not_find_all=[('战斗-挑战结果-失败', '按钮-退出')],
-                                                 success_wait=1, retry_wait=1)
+        result = self.round_by_find_and_click_area(screen_name='战斗-挑战结果-失败', area_name='按钮-退出',
+                                                   until_not_find_all=[('战斗-挑战结果-失败', '按钮-退出')],
+                                                   success_wait=1, retry_wait=1)
+        if result.is_success:
+            return self.round_fail(status=RoutineCleanup.STATUS_FIGHT_TIMEOUT)
 
     def handle_pause(self):
         auto_battle_utils.stop_running(self.auto_op)
@@ -251,7 +265,7 @@ def __debug_charge():
     """
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     from one_dragon.utils import debug_utils
     screen = debug_utils.get_debug_image('_1742622263371')
     area = ctx.screen_loader.get_area('定期清剿', '剩余电量')
@@ -263,7 +277,7 @@ def __debug_charge():
 def __debug():
     ctx = ZContext()
     ctx.init_by_config()
-    ctx.ocr.init_model()
+    ctx.init_ocr()
     ctx.start_running()
     op = RoutineCleanup(ctx, ChargePlanItem(
         category_name='定期清剿',
