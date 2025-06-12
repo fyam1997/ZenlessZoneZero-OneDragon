@@ -403,6 +403,16 @@ class GitService:
         log_list = self.fetch_page_commit(0, 1)
         return None if len(log_list) == 0 else log_list[0].commit_id
 
+    def get_latest_tag(self) -> Optional[str]:
+        """
+        获取最新tag
+        @return: 最新的tag名称，如果没有tag则返回None
+        """
+        result = cmd_utils.run_command([self.env_config.git_path, 'describe', '--tags', '--abbrev=0'])
+        if result is None or result.strip() == '':
+            return None
+        return result.strip()
+
 
     @staticmethod
     def is_branch_contained(base_branch: str, target_branch: str) -> bool:

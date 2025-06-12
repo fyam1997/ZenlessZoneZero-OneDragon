@@ -55,6 +55,7 @@ class CombatSimulation(ZOperation):
         self.can_run_times: int = can_run_times
         self.charge_left: Optional[int] = None
         self.charge_need: Optional[int] = None
+        self.scroll_count: int = 0  # 滑动次数计数器
 
         self.auto_op: Optional[AutoBattleOperator] = None
         self.async_init_future: Optional[Future[Tuple[bool, str]]] = None  # 初始化自动战斗的future
@@ -115,6 +116,12 @@ class CombatSimulation(ZOperation):
     @node_from(from_name='选择类型')
     @operation_node(name='选择副本')
     def choose_mission(self) -> OperationRoundResult:
+
+        # 滑动次数大于5则返回失败
+        if self.scroll_count > 5:
+            self.scroll_count = 0
+            return self.round_success(status=CombatSimulation.STATUS_CHOOSE_FAIL)
+        
         screen = self.screenshot()
         if self.plan.mission_name == '代理人方案培养':
             target_point: Optional[Point] = None
@@ -129,16 +136,17 @@ class CombatSimulation(ZOperation):
                 click_offset=(0, 80),  # 向下偏移80像素，用于点击头像下方的区域
                 min_area=800
             )
-            
+
             if click_pos:
                 target_point = Point(click_pos[0], click_pos[1])
                 log.info(f'找到代理人目标，点击位置: {target_point}')
 
             if target_point is None:
-                return self.round_success(status=CombatSimulation.STATUS_CHOOSE_FAIL)
-
-            if target_point is None:
-                return self.round_success(status=CombatSimulation.STATUS_CHOOSE_FAIL)
+                start = area.center
+                end = start + Point(-400, 0)
+                self.ctx.controller.drag_to(start=start, end=end)
+                self.scroll_count += 1
+                return self.round_retry(status='找不到 %s' % self.plan.mission_name, wait=1)
 
         else:
             area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表')
@@ -160,6 +168,11 @@ class CombatSimulation(ZOperation):
                 target_point = area.left_top + mrl.max + Point(0, 50)
 
         if target_point is None:
+            area = self.ctx.screen_loader.get_area('实战模拟室', '副本名称列表')
+            start = area.center
+            end = start + Point(-400, 0)
+            self.ctx.controller.drag_to(start=start, end=end)
+            self.scroll_count += 1
             return self.round_retry(status='找不到 %s' % self.plan.mission_name, wait=1)
 
         click = self.ctx.controller.click(target_point)
@@ -401,8 +414,8 @@ def __debug():
     charge_plan = ChargePlanItem(
         tab_name='训练',
         category_name='实战模拟室',
-        mission_type_name='自定义模板',
-        mission_name='自定义模板1',
+        mission_type_name='音擎改装',
+        mission_name='命破共鸣试验',
         run_times=0,
         plan_times=1,
         predefined_team_idx=ctx.coffee_config.predefined_team_idx,
@@ -414,4 +427,4 @@ def __debug():
 
 
 if __name__ == '__main__':
-    __debug_charge()
+    __debug()

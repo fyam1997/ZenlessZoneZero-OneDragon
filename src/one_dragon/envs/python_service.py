@@ -136,31 +136,39 @@ class PythonService:
         log.info(msg)
 
         os.environ["UV_PYTHON_INSTALL_DIR"] = DEFAULT_PYTHON_DIR_PATH
-        result = cmd_utils.run_command([self.env_config.uv_path, 'sync'])
+        result = cmd_utils.run_command([self.env_config.uv_path, 'sync', '--default-index', self.env_config.pip_source,])
         success = result is not None
         msg = '运行依赖安装成功' if success else '运行依赖安装失败'
         log.info(msg)
         return success, msg
+
+    def uv_check_sync_status(self, progress_callback: Optional[Callable[[float, str], None]] = None) -> Tuple[bool, str]:
+        """
+        检查环境是否与项目同步
+        :param progress_callback: 进度回调
+        :return: (是否同步, 状态信息)
+        """
+        msg = '正在检查环境同步状态...'
+        if progress_callback is not None:
+            progress_callback(-1, msg)
+        log.info(msg)
+
+        os.environ["UV_PYTHON_INSTALL_DIR"] = DEFAULT_PYTHON_DIR_PATH
+        result = cmd_utils.run_command([self.env_config.uv_path, 'sync', '--check'])
+
+        is_synced = result is not None
+        msg = '环境已同步' if is_synced else '环境未同步'
+        log.info(msg)
+
+        return is_synced, msg
 
     def get_os_uv_path(self) -> Optional[str]:
         """
         获取当前系统环境变量中的uv路径
         :return:
         """
-        log.info('获取系统环境变量中的 UV')
+        log.debug('获取系统环境变量中的 UV')
         message = cmd_utils.run_command(['where', 'uv'])
-        if message is not None and message.endswith('.exe'):
-            return message
-        else:
-            return None
-
-    def get_os_python_path(self) -> Optional[str]:
-        """
-        获取当前系统环境变量中的python路径
-        :return:
-        """
-        log.info('获取系统环境变量中的 Python')
-        message = cmd_utils.run_command(['where', 'python'])
         if message is not None and message.endswith('.exe'):
             return message
         else:
@@ -170,7 +178,7 @@ class PythonService:
         """
         :return: 当前使用的uv版本
         """
-        log.info('检测当前 UV 版本')
+        log.debug('检测当前 UV 版本')
         uv_path = self.env_config.uv_path
         if uv_path == '' or not os.path.exists(uv_path):
             return None
@@ -185,7 +193,7 @@ class PythonService:
         """
         :return: 当前使用的python版本
         """
-        log.info('检测当前 Python 版本')
+        log.debug('检测当前 Python 版本')
         python_path = self.env_config.python_path
         if python_path == '' or not os.path.exists(python_path):
             return None
@@ -198,7 +206,7 @@ class PythonService:
 
     def uv_install_python_venv(self, progress_callback: Optional[Callable[[float, str, str], None]]) -> Tuple[bool, str]:
         """
-        完整流程使用 uv 安装 python 环境
+        完整流程使用uv安装python环境
         :param progress_callback:
         :return:
         """
@@ -216,7 +224,7 @@ class PythonService:
         if not self.uv_install_python(progress_callback):
             return False, '安装 Python 失败 请尝试到「设置」更改 Python 下载源'
 
-        if not self.uv_sync(progress_callback):
+        if not self.uv_create_venv(progress_callback):
             return False, '创建环境失败'
         self.env_config.python_path = DEFAULT_VENV_PYTHON_PATH
 
@@ -318,56 +326,6 @@ class PythonService:
             "cpython_source",
             progress_callback
         )
-
-    def install_launcher(self, progress_callback: Optional[Callable[[float, str], None]]) -> Tuple[bool, str]:
-        if self.check_launcher_exist():
-            msg = '已经安装了启动器'
-            log.info(msg)
-            return True, msg
-
-        msg = '正在安装启动器...'
-        if progress_callback is not None:
-            progress_callback(-1, msg)
-        log.info(msg)
-
-        for _ in range(2):
-            zip_file_name = f'{self.project_config.project_name}-Launcher.zip'
-            zip_file_path = os.path.join(DEFAULT_ENV_PATH, zip_file_name)
-            download_url = f'{self.project_config.github_homepage}/releases/latest/download/{zip_file_name}'
-            if not os.path.exists(zip_file_path):
-                success = self.download_service.download_file_from_url(download_url, zip_file_path, progress_callback=progress_callback)
-                if not success:
-                    return False, '下载安装器失败 请尝试到「设置」更改网络代理'
-
-            msg = f'正在解压 {zip_file_name} ...'
-            log.info(msg)
-            if progress_callback is not None:
-                progress_callback(0, msg)
-
-            success = file_utils.unzip_file(zip_file_path, os_utils.get_work_dir())
-
-            msg = '解压成功' if success else '解压失败 准备重试'
-            log.info(msg)
-            if progress_callback is not None:
-                progress_callback(1 if success else 0, msg)
-
-            if not success:  # 解压失败的话 可能是之前下的zip包坏了 尝试删除重来
-                os.remove(zip_file_path)
-                continue
-            else:
-                return True, '安装安装器成功'
-
-        # 重试之后还是失败了
-        return False, '安装安装器失败'
-    
-    def check_launcher_exist(self) -> bool:
-        """
-        检查启动器是否存在
-        :return: 是否存在
-        """
-        launcher_path = os.path.join(os_utils.get_work_dir(), 'OneDragon Launcher.exe')
-        scheduler_path = os.path.join(os_utils.get_work_dir(), 'OneDragon Scheduler.exe')
-        return os.path.exists(launcher_path) and os.path.exists(scheduler_path)
 
 
 if __name__ == '__main__':

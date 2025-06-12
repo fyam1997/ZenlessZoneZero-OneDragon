@@ -93,7 +93,7 @@ def clean_old_logs(log_folder):
                 os.remove(os.path.join(root, file))
                 print_message(f"已删除旧日志文件: {file}", "PASS")
 
-def execute_python_script(app_path, log_folder, no_windows: bool):
+def execute_python_script(app_path, log_folder, no_windows: bool, args: list = None):
     # 执行 Python 脚本并重定向输出到日志文件
     timestamp = datetime.datetime.now().strftime("%H.%M")
     log_file_path = os.path.join(log_folder, f"python_{timestamp}.log")
@@ -126,18 +126,41 @@ def execute_python_script(app_path, log_folder, no_windows: bool):
         except Exception as e:
             print_message(f"代码更新异常: {e}", "ERROR")
 
-    # 使用 PowerShell 启动 Python 脚本并重定向输出
-    powershell_command = (
-        f"Start-Process '{uv_path}' -ArgumentList 'run {app_script_path}' -NoNewWindow -RedirectStandardOutput '{log_file_path}' -PassThru"
-    )
+    # 构建 uv run 命令参数
+    run_args = ['run', app_script_path]
+    if args:
+        run_args.extend(args)
+        print_message(f"传递参数：{' '.join(args)}", "INFO")
+
+    # 构建 PowerShell 命令参数列表
+    def escape_powershell_arg(arg):
+        # 转义 PowerShell 中的特殊字符
+        return arg.replace("'", "''").replace('"', '""')
+
+    escaped_args = [escape_powershell_arg(arg) for arg in run_args]
+    arg_list = ', '.join(f"'{arg}'" for arg in escaped_args)
+
+    # 构建 PowerShell 命令
+    powershell_command = [
+        "Start-Process",
+        f"'{escape_powershell_arg(uv_path)}'",
+        "-ArgumentList",
+        f"@({arg_list})",
+        "-NoNewWindow",
+        "-RedirectStandardOutput",
+        f"'{escape_powershell_arg(log_file_path)}'",
+        "-PassThru"
+    ]
+    full_command = " ".join(powershell_command)
+
     # 使用 subprocess.Popen 启动新的 PowerShell 窗口并执行命令
     if no_windows:
-        subprocess.Popen(["powershell", "-Command", powershell_command], creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.Popen(["powershell", "-Command", full_command], creationflags=subprocess.CREATE_NO_WINDOW)
     else:
-        subprocess.Popen(["powershell", "-Command", powershell_command])
+        subprocess.Popen(["powershell", "-Command", full_command])
     print_message("一条龙 正在启动中，大约 3+ 秒...", "INFO")
 
-def run_python(app_path, no_windows: bool = True):
+def run_python(app_path, no_windows: bool = True, args: list = None):
     # 主函数
     try:
         print_message(f"当前工作目录：{path}", "INFO")
@@ -145,7 +168,7 @@ def run_python(app_path, no_windows: bool = True):
         configure_environment()
         log_folder = create_log_folder()
         clean_old_logs(log_folder)
-        execute_python_script(app_path, log_folder, no_windows)
+        execute_python_script(app_path, log_folder, no_windows, args)
     except SystemExit as e:
         print_message(f"程序已退出，状态码：{e.code}", "ERROR")
     except Exception as e:
