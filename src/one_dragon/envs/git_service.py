@@ -166,6 +166,7 @@ class GitService:
                                         ])
         success = result is not None
         msg = '克隆仓库成功' if success else '克隆仓库失败'
+        shutil.rmtree(temp_dir_path, ignore_errors=True)  # 删除临时文件夹
         return success, msg
 
     def fetch_remote_branch(self, remote_name: str = 'origin') -> Tuple[bool, str]:
@@ -294,7 +295,7 @@ class GitService:
         :return:
         """
         log.info('获取依赖文件的最后修改时间')
-        return cmd_utils.run_command([self.env_config.git_path, 'log', '-1', '--pretty=format:"%ai', '--', self.project_config.requirements])
+        return cmd_utils.run_command([self.env_config.git_path, 'log', '-1', '--pretty=format:"%ai"', '--', self.project_config.requirements])
 
     def fetch_total_commit(self) -> int:
         """
@@ -362,9 +363,15 @@ class GitService:
 
         if not self.env_config.is_personal_proxy:  # 没有代理
             cmd_utils.run_command([self.env_config.git_path, 'config', '--local', '--unset', 'http.proxy'])
+            cmd_utils.run_command([self.env_config.git_path, 'config', '--local', '--unset', 'https.proxy'])
+            cmd_utils.run_command([self.env_config.git_path, 'config', '--local', 'http.noProxy', '*'])
+            cmd_utils.run_command([self.env_config.git_path, 'config', '--local', 'https.noProxy', '*'])
         else:
             proxy_address = self.env_config.personal_proxy
+            cmd_utils.run_command([self.env_config.git_path, 'config', '--local', '--unset', 'http.noProxy'])
+            cmd_utils.run_command([self.env_config.git_path, 'config', '--local', '--unset', 'https.noProxy'])
             cmd_utils.run_command([self.env_config.git_path, 'config', '--local', 'http.proxy', proxy_address])
+            cmd_utils.run_command([self.env_config.git_path, 'config', '--local', 'https.proxy', proxy_address])
         self.is_proxy_set = True
 
     def update_git_remote(self) -> None:
@@ -408,10 +415,18 @@ class GitService:
         获取最新tag
         @return: 最新的tag名称，如果没有tag则返回None
         """
-        result = cmd_utils.run_command([self.env_config.git_path, 'describe', '--tags', '--abbrev=0'])
-        if result is None or result.strip() == '':
-            return None
-        return result.strip()
+        # 从远程获取最新标签
+        result = cmd_utils.run_command([self.env_config.git_path, 'ls-remote', '--refs', '--tags', '--sort=-version:refname', 'origin'])
+        if result is not None and result.strip() != '':
+            lines = result.strip().split('\n')
+            if lines:
+                first_line = lines[0]
+                # 截取 refs/tags/ 后面的版本号
+                if 'refs/tags/' in first_line:
+                    tag_name = first_line.split('refs/tags/')[1]
+                    return tag_name
+
+        return None
 
 
     @staticmethod

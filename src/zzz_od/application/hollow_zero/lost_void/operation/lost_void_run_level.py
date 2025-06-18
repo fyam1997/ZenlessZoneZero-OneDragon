@@ -173,6 +173,7 @@ class LostVoidRunLevel(ZOperation):
 
     @node_from(from_name='区域类型初始化', status='非战斗区域')
     @node_from(from_name='非战斗画面识别', status=LostVoidDetector.CLASS_DISTANCE)  # 朝白点移动后重新循环
+    @node_from(from_name='非战斗画面识别', status=LostVoidMoveByDet.STATUS_NEED_DETECT)  # 之前判断是入口 进入后发现有更高优先级的目标 重新识别
     @node_from(from_name='交互后处理', status='大世界')  # 目前交互之后都不会有战斗
     @node_from(from_name='战斗中', status='识别需移动交互')  # 战斗后出现距离 或者下层入口
     @node_from(from_name='尝试交互', success=False)  # 没能交互到
@@ -254,6 +255,8 @@ class LostVoidRunLevel(ZOperation):
                 elif op_result.status == LostVoidMoveByDet.STATUS_INTERACT:
                     self.interact_target = LostVoidInteractTarget(name='未知', icon='感叹号', is_exclamation=True)
                     return self.round_success('未在大世界')
+                elif op_result.status == LostVoidMoveByDet.STATUS_NEED_DETECT:
+                    return self.round_success(op_result.status)
                 else:
                     interact_type = op_result.data  # 根据显示图标 返回入口类型
                     self.interact_target = LostVoidInteractTarget(name=interact_type, icon=interact_type, is_entry=True)
@@ -388,6 +391,12 @@ class LostVoidRunLevel(ZOperation):
         result = self.round_by_find_area(screen, '迷失之地-挑战结果', '标题-挑战结果')
         if result.is_success:
             return self.round_success('迷失之地-挑战结果')
+
+        # 有可能出现对话框需要确认 issue #1104
+        # 这里偷懒了 复用了挑战对话框的按钮
+        result = self.round_by_find_and_click_area(screen, '迷失之地-大世界', '按钮-挑战-确认')
+        if result.is_success:
+            return self.round_wait(status=result.status, wait=1)
 
         # 不在大世界的话 说明交互入口成功了
         if self.interact_target is not None and self.interact_target.is_entry:
@@ -539,6 +548,12 @@ class LostVoidRunLevel(ZOperation):
         if self.region_type == LostVoidRegionType.ENTRY:
             # 第一层 两个武备选择后 往后走 可以方便走上楼梯
             self.ctx.controller.move_s(press=True, press_time=1, release=True)
+            # 2.0版本 入口左侧增加了一个研究员 因此从其他角色交互后 往左移动一点
+            if self.interact_target.is_npc:
+                if self.interact_target.name == LostVoidInteractNPC.SCGMDYJY.value:
+                    self.ctx.controller.move_d(press=True, press_time=0.5, release=True)
+                else:
+                    self.ctx.controller.move_a(press=True, press_time=0.5, release=True)
         elif self.region_type == LostVoidRegionType.FRIENDLY_TALK:
             # 挚交会谈
             if self.interact_target.is_agent:  # 如果是代理人 向后右移动 可以避开中间桌子的障碍
@@ -731,7 +746,7 @@ def __debug():
     ctx.init_ocr()
     ctx.start_running()
 
-    op = LostVoidRunLevel(ctx, LostVoidRegionType.ELITE)
+    op = LostVoidRunLevel(ctx, LostVoidRegionType.ENTRY)
     op.execute()
 
 

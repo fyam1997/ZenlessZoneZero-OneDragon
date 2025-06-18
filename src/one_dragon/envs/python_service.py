@@ -35,10 +35,8 @@ class PythonService:
         for _ in range(2):
             zip_file_name = 'uv-x86_64-pc-windows-msvc.zip'
             zip_file_path = os.path.join(DEFAULT_ENV_PATH, zip_file_name)
-            download_url = f'https://github.com/astral-sh/uv/releases/download/0.7.6/{zip_file_name}'
             if not os.path.exists(zip_file_path):
                 success = self.download_service.download_env_file(zip_file_name, zip_file_path, progress_callback=progress_callback)
-                # success = self.download_service.download_file_from_url(download_url, zip_file_path, progress_callback=progress_callback)
                 if not success:
                     return False, '下载 UV 失败 请尝试到「设置」更改网络代理'
 
@@ -80,7 +78,7 @@ class PythonService:
         source = self.env_config.cpython_source
         if source == CpythonSourceEnum.GITHUB.value.value and self.env_config.is_gh_proxy:
             source = f'{self.env_config.gh_proxy_url}/{source}'
-        result = cmd_utils.run_command([self.env_config.uv_path, 'python', 'install', self.project_config.uv_python_version,
+        result = cmd_utils.run_command([self.env_config.uv_path, 'python', 'install', self.project_config.python_version,
                                         '--mirror', source,
                                         '--install-dir', DEFAULT_PYTHON_DIR_PATH])
         msg = 'UV 安装 Python 成功' if result is not None else 'UV 安装 Python 失败'
@@ -94,17 +92,6 @@ class PythonService:
                 progress_callback(1, msg)
             return True
 
-    def is_virtual_python(self) -> bool:
-        """
-        是否虚拟环境的python
-        :return:
-        """
-        is_virtual_str = cmd_utils.run_command([self.env_config.python_path, "-c", "import sys; print(getattr(sys, 'base_prefix', sys.prefix) != sys.prefix)"])
-        if is_virtual_str is None:
-            return False
-        else:
-            return is_virtual_str == 'True'
-
     def uv_create_venv(self, progress_callback: Optional[Callable[[float, str, str], None]]) -> bool:
         """
         使用uv创建虚拟环境
@@ -117,7 +104,10 @@ class PythonService:
         log.info(msg)
 
         os.environ["UV_PYTHON_INSTALL_DIR"] = DEFAULT_PYTHON_DIR_PATH
-        result = cmd_utils.run_command([self.env_config.uv_path, 'venv', DEFAULT_VENV_DIR_PATH, '--python=3.11.12', '--no-python-downloads'])
+        result = cmd_utils.run_command([self.env_config.uv_path, 'venv',
+                                        DEFAULT_VENV_DIR_PATH,
+                                        f'--python={self.project_config.python_version}',
+                                        '--no-python-downloads'])
         success = result is not None
         msg = '创建虚拟环境成功' if success else '创建虚拟环境失败'
         log.info(msg)
@@ -142,7 +132,7 @@ class PythonService:
         log.info(msg)
         return success, msg
 
-    def uv_check_sync_status(self, progress_callback: Optional[Callable[[float, str], None]] = None) -> Tuple[bool, str]:
+    def uv_check_sync_status(self, progress_callback: Optional[Callable[[float, str], None]] = None) -> bool:
         """
         检查环境是否与项目同步
         :param progress_callback: 进度回调
@@ -157,10 +147,7 @@ class PythonService:
         result = cmd_utils.run_command([self.env_config.uv_path, 'sync', '--check'])
 
         is_synced = result is not None
-        msg = '环境已同步' if is_synced else '环境未同步'
-        log.info(msg)
-
-        return is_synced, msg
+        return is_synced
 
     def get_os_uv_path(self) -> Optional[str]:
         """
@@ -215,9 +202,6 @@ class PythonService:
             progress_callback(-1, '正在清理旧文件')
 
         self.env_config.python_path = ''
-        if os.path.exists(DEFAULT_PYTHON_DIR_PATH):
-            shutil.rmtree(DEFAULT_PYTHON_DIR_PATH)
-
         if os.path.exists(DEFAULT_VENV_DIR_PATH):
             shutil.rmtree(DEFAULT_VENV_DIR_PATH)
 
@@ -333,4 +317,4 @@ if __name__ == '__main__':
     env_config = EnvConfig()
     download_service = DownloadService(project_config, env_config)
     python_service = PythonService(project_config, env_config, download_service)
-    python_service.uv_install_requirements(None)
+    print(python_service.uv_get_installed_python())

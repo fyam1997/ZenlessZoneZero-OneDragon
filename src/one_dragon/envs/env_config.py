@@ -13,7 +13,7 @@ DEFAULT_UV_DIR_PATH = os.path.join(DEFAULT_ENV_PATH, 'uv')  # 默认的uv文件�
 DEFAULT_UV_PATH = os.path.join(DEFAULT_UV_DIR_PATH, 'uv.exe')  # 默认的uv.exe文件路径
 DEFAULT_PYTHON_DIR_PATH = os.path.join(DEFAULT_ENV_PATH, 'python')  # 默认的python文件夹路径
 DEFAULT_VENV_DIR_PATH = os_utils.get_path_under_work_dir('.venv')  # 默认的虚拟环境文件夹路径
-DEFAULT_VENV_PYTHON_PATH = os.path.join(DEFAULT_VENV_DIR_PATH, 'scripts', 'python.exe')  # 默认的虚拟环境中python.exe的路径
+DEFAULT_VENV_PYTHON_PATH = os.path.join(DEFAULT_VENV_DIR_PATH, 'Scripts', 'python.exe')  # 默认的虚拟环境中python.exe的路径
 
 GH_PROXY_URL = 'https://ghfast.top'  # 免费代理的路径
 
@@ -54,11 +54,13 @@ class GitBranchEnum(Enum):
 
 
 class CpythonSourceEnum(Enum):
-    GITHUB = ConfigItem('官方 (GitHub)', 'https://github.com/astral-sh/python-build-standalone/releases/download')
-    NJU = ConfigItem('南京大学', 'https://mirror.nju.edu.cn/github-release/indygreg/python-build-standalone')
+
+    GITHUB = ConfigItem('GitHub', 'https://github.com/astral-sh/python-build-standalone/releases/download')
+    GITEE = ConfigItem('Gitee', 'https://gitee.com/OneDragon-Anything/python-build-standalone/releases/download')
 
 
 class EnvSourceEnum(Enum):
+
     GITHUB = ConfigItem('GitHub', 'https://github.com/OneDragon-Anything/OneDragon-Env/releases/download')
     GITEE = ConfigItem('Gitee', 'https://gitee.com/OneDragon-Anything/OneDragon-Env/releases/download')
 
@@ -240,7 +242,7 @@ class EnvConfig(YamlConfig):
         cpython-build-standalone 源
         :return:
         """
-        return self.get('cpython_source', CpythonSourceEnum.NJU.value.value)
+        return self.get('cpython_source', CpythonSourceEnum.GITEE.value.value)
 
     @cpython_source.setter
     def cpython_source(self, new_value: str) -> None:
@@ -465,3 +467,14 @@ class EnvConfig(YamlConfig):
         是否第一次运行
         """
         self.update('is_first_run', new_value)
+
+    def init_system_proxy(self):
+        """
+        初始化系统代理设置
+        """
+        if self.is_personal_proxy:
+            os.environ['HTTP_PROXY'] = self.personal_proxy
+            os.environ['HTTPS_PROXY'] = self.personal_proxy
+        else:
+            os.environ['HTTP_PROXY'] = ""
+            os.environ['HTTPS_PROXY'] = ""
