@@ -3,7 +3,7 @@ from enum import Enum
 from pynput import keyboard, mouse
 from typing import Optional
 
-from one_dragon.base.config.custom_config import CustomConfig
+from one_dragon.base.config.custom_config import CustomConfig, UILanguageEnum
 from one_dragon.base.config.game_account_config import GameAccountConfig
 from one_dragon.base.config.one_dragon_app_config import OneDragonAppConfig
 from one_dragon.base.config.one_dragon_config import OneDragonConfig
@@ -18,7 +18,7 @@ from one_dragon.base.operation.context_event_bus import ContextEventBus
 from one_dragon.base.operation.one_dragon_env_context import OneDragonEnvContext, ONE_DRAGON_CONTEXT_EXECUTOR
 from one_dragon.base.screen.screen_loader import ScreenContext
 from one_dragon.base.screen.template_loader import TemplateLoader
-from one_dragon.utils import debug_utils, log_utils
+from one_dragon.utils import debug_utils, i18_utils, log_utils
 from one_dragon.utils import thread_utils
 from one_dragon.utils.i18_utils import gt
 from one_dragon.utils.log_utils import log
@@ -82,9 +82,13 @@ class OneDragonContext(ContextEventBus, OneDragonEnvContext):
     def init_by_config(self) -> None:
         """
         根据配置进行初始化
-        不能在 __init__ 中调用，因为子类可能还没有完成初始话
+        不能在 __init__ 中调用，因为子类可能还没有完成初始化
         :return:
         """
+        if self.custom_config.ui_language == UILanguageEnum.AUTO.value.value:
+            i18_utils.detect_and_set_default_language()
+        else:
+            i18_utils.update_default_lang(self.custom_config.ui_language)
         log_utils.set_log_level(logging.DEBUG if self.env_config.is_debug else logging.INFO)
 
     def start_running(self) -> bool:
@@ -123,11 +127,11 @@ class OneDragonContext(ContextEventBus, OneDragonEnvContext):
     @property
     def context_running_status_text(self) -> str:
         if self.context_running_state == ContextRunStateEnum.STOP:
-            return gt('空闲', 'ui')
+            return gt('空闲')
         elif self.context_running_state == ContextRunStateEnum.RUN:
-            return gt('运行中', 'ui')
+            return gt('运行中')
         elif self.context_running_state == ContextRunStateEnum.PAUSE:
-            return gt('暂停中', 'ui')
+            return gt('暂停中')
         else:
             return gt('未知')
 

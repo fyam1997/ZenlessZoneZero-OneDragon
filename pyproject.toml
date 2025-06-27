@@ -104,3 +104,4 @@ gamepad = [
 [tool.uv]
 package = false
 cache-dir = "./.install/uv_cache"
+default-groups = []
