@@ -10,7 +10,7 @@ def get_app_run_records(app: ZOneDragonApp):
 
     for app_item in apps:
         app_item: ZApplication
-        app_name = app_item.app_id
+        app_name = app_item.op_name
         record = app_item.run_record
 
         if record:
@@ -58,7 +58,11 @@ def show_app_run_record(app: ZOneDragonApp):
             AppRunRecord.STATUS_FAIL: "Fail",
             AppRunRecord.STATUS_RUNNING: "Running",
         }.get(record["status"])
-        table.setItem(i, 2, QTableWidgetItem(status))
+        status_item = QTableWidgetItem(status)
+        if record["status"] == AppRunRecord.STATUS_FAIL:
+            from PySide6.QtGui import QColor
+            status_item.setBackground(QColor(255, 102, 102))  # light red
+        table.setItem(i, 2, status_item)
 
     table.resizeColumnsToContents()
     table.horizontalHeader().setStretchLastSection(True)
