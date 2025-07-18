@@ -401,7 +401,7 @@ class Operation(OperationBase):
                     op_result = self.op_fail(round_result.status)
                     break
             else:  # 继续下一个节点
-                operation_logger.info(f"next node {next_node.cn} {next_node.func}")
+                operation_logger.info(f"next node {next_node.cn} {next_node.op_method}")
                 self._current_node = next_node
                 self._reset_status_for_new_node()  # 充值状态
                 continue
