@@ -70,7 +70,7 @@ def get_image_file_type(file_path: str) -> str:
 
 def show_image(
         img: MatLike,
-        rects: Union[MatchResult, MatchResultList] = None,
+        rects: Union[MatchResult, MatchResultList, list[Rect]] = None,
         win_name: str = 'DEBUG',
         wait: Optional[int] = None,
         destroy_after: bool = False,
@@ -109,6 +109,12 @@ def show_image(
         elif type(rects) == MatchResultList:
             for i in rects:
                 cv2.rectangle(to_show, (i.x, i.y), (i.x + i.w, i.y + i.h), (255, 0, 0), 1)
+        elif isinstance(rects, list):
+            for rect in rects:
+                if isinstance(rect, MatchResult):
+                    cv2.rectangle(to_show, (rect.x, rect.y), (rect.x + rect.w, rect.y + rect.h), (255, 0, 0), 1)
+                elif type(rect) == Rect:
+                    cv2.rectangle(to_show, (rect.x1, rect.y1), (rect.x2, rect.y2), (255, 0, 0), 1)
 
     if max_width is not None and to_show.shape[1] > max_width:
         scale = max_width / to_show.shape[1]
@@ -316,6 +322,7 @@ def show_overlap(
         win_name: str = 'DEBUG', wait: int = 1,
         max_width: int | None = None,
         max_height: int | None = None,
+        template_mask: MatLike | None = None,
 ):
     to_show_source = source.copy()
 
@@ -329,7 +336,7 @@ def show_overlap(
     else:
         to_show_template = template
 
-    source_overlap_template(to_show_source, to_show_template, x, y)
+    source_overlap_template(to_show_source, to_show_template, x, y, copy_img=False, template_mask=template_mask)
     show_image(to_show_source, win_name=win_name, wait=wait,
                max_width=max_width,
                max_height=max_height,)
@@ -436,7 +443,7 @@ def feature_match_for_one(source_kp, source_desc, template_kp, template_desc,
     source_points = np.float32([source_kp[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)  # 原图的
 
     # 使用RANSAC算法估计模板位置和尺度
-    _, mask = cv2.findHomography(template_points, source_points, cv2.RANSAC, 5.0, mask=source_mask)
+    homography_matrix, mask = cv2.findHomography(template_points, source_points, cv2.RANSAC, 5.0, mask=source_mask)
     # 获取内点的索引 拿最高置信度的
     inlier_indices = np.where(mask.ravel() == 1)[0]
     if len(inlier_indices) == 0:  # mask 里没找到就算了 再用good_matches的结果也是很不准的
@@ -463,7 +470,22 @@ def feature_match_for_one(source_kp, source_desc, template_kp, template_desc,
     scaled_width = int(template_width * template_scale)
     scaled_height = int(template_height * template_scale)
 
-    return MatchResult(1, offset_x, offset_y, scaled_width, scaled_height, template_scale)
+    # 计算综合置信度
+    # 1. 内点比例 - RANSAC内点占总good_matches的比例
+    inlier_ratio = len(inlier_indices) / len(good_matches)
+    # 2. 距离因子 - 距离越小越好，但要处理0距离的情况
+    distance_factor = 1.0 / (1.0 + best_match.distance / 100.0) if best_match.distance > 0 else 1.0
+    # 3. 内点数量因子 - 内点越多越好
+    inlier_count_factor = min(1.0, len(inlier_indices) / 10.0)
+
+    confidence = (
+        0.4 * inlier_ratio +
+        0.4 * distance_factor +
+        0.2 * inlier_count_factor
+    )
+    confidence = np.clip(confidence, 0.0, 1.0)
+
+    return MatchResult(confidence, offset_x, offset_y, scaled_width, scaled_height, template_scale)
 
 
 def feature_match_for_multi(
@@ -679,7 +701,7 @@ def convert_to_standard(origin, mask, width: int = 51, height: int = 51, bg_colo
     return final_origin, final_mask
 
 
-def source_overlap_template(source, template, x, y, copy_img: bool = False):
+def source_overlap_template(source, template, x, y, copy_img: bool = False, template_mask: MatLike | None = None):
     """
     在原图上覆盖模板图
     :param source: 原图
@@ -687,16 +709,27 @@ def source_overlap_template(source, template, x, y, copy_img: bool = False):
     :param x: 偏移量
     :param y: 偏移量
     :param copy_img: 是否复制新图片
+    :param template_mask: 模板图掩码
     :return:
     """
     to_overlap_source = source.copy() if copy_img else source
+    if template_mask is None:
+        template_mask = np.full_like(template, 255, dtype=np.uint8)
 
     rect1, rect2 = get_overlap_rect(source, template, x, y)
     sx_start, sy_start, sx_end, sy_end = rect1
     tx_start, ty_start, tx_end, ty_end = rect2
 
-    # 将覆盖图像放置到底图的指定位置
-    to_overlap_source[sy_start:sy_end, sx_start:sx_end] = template[ty_start:ty_end, tx_start:tx_end]
+    # 定义目标图像中的感兴趣区域 (ROI)
+    source_roi = to_overlap_source[sy_start:sy_end, sx_start:sx_end]
+    template_roi = template[ty_start:ty_end, tx_start:tx_end]
+    template_mask_roi = template_mask[ty_start:ty_end, tx_start:tx_end]
+
+    mask_condition = template_mask_roi > 0
+
+    # 使用布尔索引，只将模板中掩码为 True 的像素复制到 ROI。
+    # NumPy 会自动将这个二维的布尔掩码应用到三维的彩色图像上。
+    source_roi[mask_condition] = template_roi[mask_condition]
 
     return to_overlap_source
 

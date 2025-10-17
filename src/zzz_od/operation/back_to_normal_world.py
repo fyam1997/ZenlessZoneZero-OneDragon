@@ -22,6 +22,7 @@ class BackToNormalWorld(ZOperation):
         ZOperation.__init__(self, ctx, op_name=gt('返回大世界'))
 
         self.last_dialog_idx: int = -1  # 上次选择的对话选项下标
+        self.click_exit_battle: bool = False
 
     @operation_node(name='画面识别', is_start_node=True, node_max_retry_times=60)
     def check_screen_and_run(self) -> OperationRoundResult:
@@ -29,6 +30,10 @@ class BackToNormalWorld(ZOperation):
         识别游戏画面
         :return:
         """
+        current_screen = self.check_and_update_current_screen()
+        if current_screen in ['大世界-普通', '大世界-勘域']:
+            return self.round_success(status=current_screen)
+
         result = self.round_by_goto_screen(screen=self.last_screenshot, screen_name='大世界-普通', retry_wait=None)
         if result.is_success:
             return self.round_success(result.status)
@@ -38,14 +43,29 @@ class BackToNormalWorld(ZOperation):
             return self.round_wait(result.status, wait=1)
 
         result = self.round_by_find_area(self.last_screenshot, '大世界', '信息')
-
         if result.is_success:
             return self.round_success(result.status)
+
+        mini_map = self.ctx.world_patrol_service.cut_mini_map(self.last_screenshot)
+        if mini_map.play_mask_found:
+            return self.round_success(status='发现地图')
 
         # 大部分画面都有街区可以直接返回
         result = self.round_by_find_and_click_area(self.last_screenshot, '画面-通用', '左上角-街区')
         if result.is_success:
             return self.round_retry(result.status, wait=1)
+
+        # 这可以是通用的退出战斗 退出战斗的画面也有返回按钮 需要在返回前面
+        result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-战斗', '退出战斗')
+        if result.is_success:
+            self.click_exit_battle = True
+            return self.round_retry(result.status, wait=1)
+
+        if self.click_exit_battle:
+            result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-战斗', '退出战斗-确认')
+            if result.is_success:
+                return self.round_retry(result.status, wait=1)
+        self.click_exit_battle = False
 
         # 大部分画面左上角都有返回按钮
         result = self.round_by_find_and_click_area(self.last_screenshot, '菜单', '返回')
@@ -72,10 +92,6 @@ class BackToNormalWorld(ZOperation):
         if result.is_success:
             self.round_by_click_area('战斗画面', '菜单')
             return self.round_retry(result.status, wait=1)
-        # 空洞内的撤退
-        result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-战斗', '退出战斗')
-        if result.is_success:
-            return self.round_retry(result.status, wait=1)
         # 空洞内撤退后的完成
         result = self.round_by_find_and_click_area(self.last_screenshot, '零号空洞-事件', '通关-完成')
         if result.is_success:
@@ -89,7 +105,12 @@ class BackToNormalWorld(ZOperation):
 
         click_back = self.round_by_click_area('菜单', '返回')
         if click_back.is_success:
-            return self.round_retry(click_back.status, wait_round_time=1)
+            # 由于上方识别可能耗时较长
+            # 这样就可能 当前截图是没加载的 耗时识别后加载好 但点击了返回
+            # 那如果使用wait_round_time=1的话 可能导致点击后基本不等待
+            # 进入下一轮截图就会识别到在大世界 但因为点击了返回又到了菜单
+            # 相关 issue #1357
+            return self.round_retry(click_back.status, wait=1)
         else:
             return self.round_fail()
 
@@ -154,7 +175,7 @@ def __debug_op():
     ctx.init_by_config()
     ctx.init_ocr()
     op = BackToNormalWorld(ctx)
-    ctx.start_running()
+    ctx.run_context.start_running()
     op.execute()
 
 
@@ -171,4 +192,4 @@ def _debug():
 
 
 if __name__ == '__main__':
-    _debug()
+    __debug_op()

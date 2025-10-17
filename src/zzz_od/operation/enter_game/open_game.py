@@ -16,14 +16,14 @@ class OpenGame(Operation):
         Operation.__init__(self, ctx, op_name=gt('打开游戏'),
                            need_check_game_win=False)
 
-    @operation_node(name='打开游戏', is_start_node=True)
+    @operation_node(name='打开游戏', is_start_node=True, screenshot_before_round=False)
     def open_game(self) -> OperationRoundResult:
         """
         打开游戏
         :return:
         """
         if self.ctx.game_account_config.game_path == '':
-            return self.round_fail('未配置游戏路径')
+            return self.round_fail('未配置游戏路径，请前往 [ 账户管理 ] -> [ 游戏路径 ] 手动设置')
         full_path = self.ctx.game_account_config.game_path
         dir_path = os.path.dirname(full_path)
         exe_name = os.path.basename(full_path)
@@ -41,5 +41,31 @@ class OpenGame(Operation):
             command = f'{command} {arguement}'
         command = f'{command} & exit"'
         log.info('命令行指令 %s', command)
-        subprocess.Popen(command)
-        return self.round_success(wait=5)
+
+        try:
+            # 若启动器使用了进程组管理，使用 CREATE_BREAKAWAY_FROM_JOB 可使子进程从jobobject中逃离， 避免OneDragon-Launcher.exe退出后，游戏被杀死
+            subprocess.Popen(
+                command,
+                creationflags=subprocess.CREATE_BREAKAWAY_FROM_JOB
+            )
+
+            # 埋点：游戏启动事件
+            if hasattr(self.ctx, 'telemetry') and self.ctx.telemetry:
+                self.ctx.telemetry.track_custom_event('game_launched', {
+                    'launch_method': 'auto_launch',
+                    'has_launch_arguments': self.ctx.game_config.launch_argument,
+                    'screen_size': self.ctx.game_config.screen_size if hasattr(self.ctx.game_config, 'screen_size') else 'unknown',
+                    'full_screen': self.ctx.game_config.full_screen if hasattr(self.ctx.game_config, 'full_screen') else False,
+                    'event_category': 'game_lifecycle'
+                })
+
+            return self.round_success(wait=5)
+        except Exception as e:
+            # 埋点：游戏启动失败事件
+            if hasattr(self.ctx, 'telemetry') and self.ctx.telemetry:
+                self.ctx.telemetry.track_custom_event('game_launch_failed', {
+                    'launch_method': 'auto_launch',
+                    'error_type': type(e).__name__,
+                    'event_category': 'game_lifecycle'
+                })
+            raise

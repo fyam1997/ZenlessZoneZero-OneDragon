@@ -71,7 +71,7 @@
     - category_name: "定期清剿"
       mission_type_list:
         - mission_type_name: "怪兽与怪客"
-          mission_type_name_display: "摇滚爵士 混沌重金属"
+          mission_type_name_display: "摇摆爵士 混沌重金属"
         - mission_type_name: "恶拳与凶枪"
           mission_type_name_display: "激素朋克 獠牙重金属"
         - mission_type_name: "猎人与忠犬"
@@ -90,6 +90,8 @@
           mission_type_name_display: "如影相随 法厄同之歌"
         - mission_type_name: "口舌与刀兵"
           mission_type_name_display: "云岿如我 山大王"
+        - mission_type_name: "铁律与狂徒"
+          mission_type_name_display: "拂晓生花 月光骑士颂"
         - mission_type_name: "代理人方案培养"
 
     - category_name: "专业挑战室"
@@ -105,6 +107,7 @@
         - mission_type_name: "伐木机"
         - mission_type_name: "秽息蚀者·阿瓦鲁斯"
         - mission_type_name: "牲鬼·凶魁愚者"
+        - mission_type_name: "秽蚀·狛野真斗"
         - mission_type_name: "代理人方案培养"
 
 - tab_name: "作战"
@@ -117,6 +120,7 @@
         - mission_type_name: "「霸主侵蚀体·庞培」"
         - mission_type_name: "牲鬼·布林格"
         - mission_type_name: "秽息司祭"
+        - mission_type_name: "彷徨猎手"
         - mission_type_name: "代理人方案培养"
     - category_name: "零号空洞"
       mission_type_list:

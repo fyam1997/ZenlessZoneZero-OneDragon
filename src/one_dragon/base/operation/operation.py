@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import difflib
 import inspect
 import time
 from functools import cached_property
 from io import BytesIO
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional
 from typing import Optional, ClassVar, Callable, Any, List, Tuple
 
 import cv2
@@ -15,19 +18,82 @@ from cv2.typing import MatLike
 from one_dragon.base.geometry.point import Point
 from one_dragon.base.matcher.match_result import MatchResultList
 from one_dragon.base.matcher.ocr import ocr_utils
-from one_dragon.base.operation.one_dragon_context import OneDragonContext, ContextRunningStateEventEnum
+from one_dragon.base.operation.application.application_run_context import (
+    ApplicationRunContextStateEventEnum,
+)
 from one_dragon.base.operation.operation_base import OperationBase, OperationResult
 from one_dragon.base.operation.operation_edge import OperationEdge, OperationEdgeDesc
 from one_dragon.base.operation.operation_node import OperationNode
-from one_dragon.base.operation.operation_round_result import OperationRoundResultEnum, OperationRoundResult
+from one_dragon.base.operation.operation_round_result import (
+    OperationRoundResult,
+    OperationRoundResultEnum,
+)
 from one_dragon.base.screen import screen_utils
 from one_dragon.base.screen.screen_area import ScreenArea
-from one_dragon.base.screen.screen_utils import OcrClickResultEnum, FindAreaResultEnum
-from one_dragon.utils import debug_utils, cv2_utils, str_utils
+from one_dragon.base.screen.screen_utils import FindAreaResultEnum, OcrClickResultEnum
+from one_dragon.utils import cv2_utils, debug_utils, str_utils
 from one_dragon.utils.i18_utils import coalesce_gt, gt
 from one_dragon.utils.log_utils import log, get_logger
 
 operation_logger = get_logger("operation_log.txt", "operation_log")
+
+if TYPE_CHECKING:
+    from one_dragon.base.operation.one_dragon_context import OneDragonContext
+
+class PreviousNodeStateProxy:
+    """
+    一个代理类，用于安全、便捷地访问上一个节点的静态信息和动态执行结果。
+    """
+
+    def __init__(self, node: Optional[OperationNode], result: Optional[OperationRoundResult]):
+        self._node = node
+        self._result = result
+
+    @property
+    def name(self) -> Optional[str]:
+        """
+        上一个节点的名称
+        """
+        return self._node.cn if self._node else None
+
+    @property
+    def status(self) -> Optional[str]:
+        """
+        上一个节点的返回状态
+        """
+        return self._result.status if self._result else None
+
+    @property
+    def data(self) -> Optional[Any]:
+        """
+        上一个节点的返回数据
+        """
+        return self._result.data if self._result else None
+
+    @property
+    def is_success(self) -> bool:
+        """
+        上一个节点是否成功
+        """
+        if self._result is None:
+            return False
+        return self._result.result == OperationRoundResultEnum.SUCCESS
+
+    @property
+    def is_fail(self) -> bool:
+        """
+        上一个节点是否失败
+        """
+        if self._result is None:
+            return False
+        return self._result.result == OperationRoundResultEnum.FAIL
+
+    @property
+    def raw_node(self) -> Optional[OperationNode]:
+        """
+        获取原始的 OperationNode 对象，用于高级访问
+        """
+        return self._node
 
 
 class Operation(OperationBase):
@@ -112,6 +178,12 @@ class Operation(OperationBase):
         self._current_node: OperationNode | None = None
         """当前执行的节点"""
 
+        self._previous_node: OperationNode | None = None
+        """上一个执行的节点"""
+
+        self._previous_round_result: OperationRoundResult | None = None
+        """上一个执行节点的结果"""
+
         self.node_clicked: bool = False
         """本节点是否已经完成了点击"""
 
@@ -123,6 +195,9 @@ class Operation(OperationBase):
 
         self.last_screenshot_time: float = 0
         """上一次截图的时间"""
+
+        self.node_status: dict[str, PreviousNodeStateProxy] = {}
+        """已保存节点状态的字典"""
 
     def _init_before_execute(self):
         """在操作开始前初始化执行状态。
@@ -146,11 +221,13 @@ class Operation(OperationBase):
         self.node_retry_times = 0
         self.node_clicked = False
         self._current_node_start_time = now
+        self._previous_round_result = None
+        self.node_status.clear()
 
         # 监听事件
-        self.ctx.unlisten_all_event(self)
-        self.ctx.listen_event(ContextRunningStateEventEnum.PAUSE_RUNNING.value, self._on_pause)
-        self.ctx.listen_event(ContextRunningStateEventEnum.RESUME_RUNNING.value, self._on_resume)
+        self.ctx.run_context.event_bus.unlisten_all_event(self)
+        self.ctx.run_context.event_bus.listen_event(ApplicationRunContextStateEventEnum.PAUSE, self._on_pause)
+        self.ctx.run_context.event_bus.listen_event(ApplicationRunContextStateEventEnum.RESUME, self._on_resume)
 
         self.handle_init()
 
@@ -255,6 +332,8 @@ class Operation(OperationBase):
         # 初始化开始节点
         self._start_node = start_node
         self._current_node = start_node
+        self._previous_node = None
+        self._previous_round_result = None
 
     def _add_check_game_node(self, start_node: OperationNode) -> OperationNode:
         """
@@ -267,10 +346,10 @@ class Operation(OperationBase):
 
         """
         if self.need_check_game_win and start_node is not None:
-            check_game_window = OperationNode('检测游戏窗口', lambda _: self.check_game_window())
+            check_game_window = OperationNode('检测游戏窗口', lambda _: self.check_game_window(), screenshot_before_round=False)
             self._add_node(check_game_window)
 
-            open_and_enter_game = OperationNode('打开并进入游戏', lambda _: self.open_and_enter_game())
+            open_and_enter_game = OperationNode('打开并进入游戏', lambda _: self.open_and_enter_game(), screenshot_before_round=False)
             self._add_node(open_and_enter_game)
 
             no_game_edge = OperationEdge(check_game_window, open_and_enter_game, success=False)
@@ -342,10 +421,10 @@ class Operation(OperationBase):
             if self.timeout_seconds != -1 and self.operation_usage_time >= self.timeout_seconds:
                 op_result = self.op_fail(Operation.STATUS_TIMEOUT)
                 break
-            if self.ctx.is_context_stop:
+            if self.ctx.run_context.is_context_stop:
                 op_result = self.op_fail('人工结束')
                 break
-            elif self.ctx.is_context_pause:
+            elif self.ctx.run_context.is_context_pause:
                 time.sleep(1)
                 continue
 
@@ -355,14 +434,16 @@ class Operation(OperationBase):
                         or (self._current_node is not None and not self._current_node.mute)
                 ):
                     node_name = 'none' if self._current_node is None else self._current_node.cn
+                    from_node_name = 'none' if self._previous_node is None else self._previous_node.cn
                     round_result_status = 'none' if round_result is None else coalesce_gt(round_result.status, round_result.status_display, model='ui')
                     if (self._current_node is not None
                             and self._current_node.mute
                         and (round_result.result == OperationRoundResultEnum.WAIT or round_result.result == OperationRoundResultEnum.RETRY)):
                         pass
                     else:
-                        log.info('%s 节点 %s 返回状态 %s', self.display_name, node_name, round_result_status)
-                if self.ctx.is_context_pause:  # 有可能触发暂停的时候仍在执行指令 执行完成后 再次触发暂停回调 保证操作的暂停回调真正生效
+                        arrow = f"{from_node_name} -> {node_name}" if self._previous_node is not None else node_name
+                        log.info('%s 节点 %s 返回状态 %s', self.display_name, arrow, round_result_status)
+                if self.ctx.run_context.is_context_pause:  # 有可能触发暂停的时候仍在执行指令 执行完成后 再次触发暂停回调 保证操作的暂停回调真正生效
                     self._on_pause()
             except Exception as e:
                 round_result: OperationRoundResult = self.round_retry('异常')
@@ -401,7 +482,8 @@ class Operation(OperationBase):
                     op_result = self.op_fail(round_result.status)
                     break
             else:  # 继续下一个节点
-                operation_logger.info(f"next node {next_node.cn} {next_node.op_method}")
+                self._previous_round_result = round_result
+                self._previous_node = self._current_node
                 self._current_node = next_node
                 self._reset_status_for_new_node()  # 充值状态
                 continue
@@ -436,6 +518,12 @@ class Operation(OperationBase):
                                                            wait=self._current_node.wait_after_op)
         else:
             return self.round_fail('节点处理函数和指令都没有设置')
+
+        # 自动保存启用了 save_status 的节点状态
+        if self._current_node.save_status and current_round_result.result in (
+            OperationRoundResultEnum.SUCCESS, OperationRoundResultEnum.FAIL
+        ):
+            self.node_status[self._current_node.cn] = PreviousNodeStateProxy(self._current_node, current_round_result)
 
         return current_round_result
 
@@ -499,7 +587,7 @@ class Operation(OperationBase):
         Args:
             e: 事件参数（可选）。
         """
-        if not self.ctx.is_context_pause:
+        if not self.ctx.run_context.is_context_pause:
             return
         self.current_pause_time = 0
         self.pause_start_time = time.time()
@@ -518,7 +606,7 @@ class Operation(OperationBase):
         Args:
             e: 事件参数（可选）。
         """
-        if not self.ctx.is_context_running:
+        if not self.ctx.run_context.is_context_running:
             return
         self.current_pause_time = time.time() - self.pause_start_time
         self.pause_total_time += self.current_pause_time
@@ -870,7 +958,8 @@ class Operation(OperationBase):
             success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
             retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None,
             color_range: Optional[list] = None,
-    ):
+            offset: Optional[Point] = None,
+    ) -> OperationRoundResult:
         """使用OCR在区域内查找目标文本并点击。
 
         Args:
@@ -883,16 +972,17 @@ class Operation(OperationBase):
             retry_wait: 失败后等待时间（秒）。默认为None。
             retry_wait_round: 失败后等待直到轮次时间达到此值，如果设置了retry_wait则忽略。默认为None。
             color_range: 文本匹配的颜色范围。默认为None。
+            offset: 点击位置的偏移量。默认为None。
 
         Returns:
             OperationRoundResult: 点击结果。
         """
         # 优先使用OCR缓存服务
         if self.ctx.env_config.ocr_cache:
-            ocr_result_map = self.ctx.ocr_service.get_ocr_result_list(
+            ocr_result_map = self.ctx.ocr_service.get_ocr_result_map(
                 image=screen,
                 color_range=color_range,
-                rect=None if area is None else area.rect
+                rect=area.rect if area is not None else None
             )
         else:
             # 回退到原有方法
@@ -933,6 +1023,9 @@ class Operation(OperationBase):
         if area is not None:
             to_click = to_click + area.left_top
 
+        if offset is not None:
+            to_click = to_click + offset
+
         click = self.ctx.controller.click(to_click)
         if click:
             return self.round_success(target_cn, wait=success_wait, wait_round_time=success_wait_round)
@@ -947,8 +1040,9 @@ class Operation(OperationBase):
             area: Optional[ScreenArea] = None,
             success_wait: Optional[float] = None, success_wait_round: Optional[float] = None,
             retry_wait: Optional[float] = None, retry_wait_round: Optional[float] = None,
-            color_range: Optional[list] = None,
-    ):
+            color_range: Optional[list[list[int]]] = None,
+            offset: Optional[Point] = None,
+    ) -> OperationRoundResult:
         """使用OCR按优先级在区域内查找文本并点击。
 
         Args:
@@ -961,6 +1055,7 @@ class Operation(OperationBase):
             retry_wait: 失败后等待时间（秒）。默认为None。
             retry_wait_round: 失败后等待直到轮次时间达到此值，如果设置了retry_wait则忽略。默认为None。
             color_range: 文本匹配的颜色范围。默认为None。
+            offset: 点击位置的偏移量。默认为None。
 
         Returns:
             OperationRoundResult: 点击结果。
@@ -970,21 +1065,24 @@ class Operation(OperationBase):
 
         # 优先使用OCR缓存服务
         if self.ctx.env_config.ocr_cache:
-            ocr_result_map = self.ctx.ocr_service.get_ocr_result_list(
+            ocr_result_map = self.ctx.ocr_service.get_ocr_result_map(
                 image=screen,
                 color_range=color_range,
-                rect=area.rect,
+                rect=area.rect if area is not None else None
             )
         else:
             # 回退到原有方法
             to_ocr_part = screen if area is None else cv2_utils.crop_image_only(screen, area.rect)
             if color_range is not None:
-                mask = cv2.inRange(to_ocr_part, color_range[0], color_range[1])
+                mask = cv2.inRange(to_ocr_part, np.array(color_range[0]), np.array(color_range[1]))
                 mask = cv2_utils.dilate(mask, 5)
                 to_ocr_part = cv2.bitwise_and(to_ocr_part, to_ocr_part, mask=mask)
                 # cv2_utils.show_image(to_ocr_part, win_name='round_by_ocr_and_click', wait=0)
 
             ocr_result_map = self.ctx.ocr.run_ocr(to_ocr_part)
+            if area is not None:
+                for _, mrl in ocr_result_map.items():
+                    mrl.add_offset(area.left_top)
 
         match_word, match_word_mrl = ocr_utils.match_word_list_by_priority(
             ocr_result_map,
@@ -992,7 +1090,12 @@ class Operation(OperationBase):
             ignore_list=ignore_cn_list
         )
         if match_word is not None and match_word_mrl is not None and match_word_mrl.max is not None:
-            self.ctx.controller.click(match_word_mrl.max.center)
+            to_click = match_word_mrl.max.center
+
+            if offset is not None:
+                to_click = to_click + offset
+
+            self.ctx.controller.click(to_click)
             return self.round_success(status=match_word, wait=success_wait, wait_round_time=success_wait_round)
 
         return self.round_retry(status='未匹配到目标文本', wait=retry_wait, wait_round_time=retry_wait_round)
@@ -1124,3 +1227,27 @@ class Operation(OperationBase):
         current_screen_name = self.ctx.screen_loader.current_screen_name
         route = self.ctx.screen_loader.get_screen_route(current_screen_name, screen_name)
         return route is not None and route.can_go
+
+    @property
+    def previous_node(self) -> PreviousNodeStateProxy:
+        """
+        获取一个代理对象，用于安全地访问上一个节点的执行状态和结果。
+
+        在节点的执行函数中，可以通过 `self.previous_node` 来获取前一个节点的信息，
+        这对于根据上一步的结果来决定当前步骤的行为非常有用。
+
+        Returns:
+            PreviousNodeStateProxy: 一个包含上一个节点状态和结果的代理对象。
+
+        Example:
+            @operation_node(name='处理节点')
+            def process_node(self) -> OperationRoundResult:
+                # 检查上一个节点是否成功，并且状态是'前置完成'
+                if self.previous_node.is_success and self.previous_node.status == '前置完成':
+                    print(f'来自节点: {self.previous_node.name}')
+                    # 使用上一个节点返回的数据
+                    prev_data = self.previous_node.data
+                    # ... 进行处理 ...
+                return self.round_success()
+        """
+        return PreviousNodeStateProxy(self._previous_node, self._previous_round_result)

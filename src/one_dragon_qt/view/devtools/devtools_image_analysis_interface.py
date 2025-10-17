@@ -1,23 +1,23 @@
-# coding: utf-8
 from functools import partial
 
-import cv2
 import numpy as np
-from PySide6.QtCore import Qt, QPoint
-from PySide6.QtGui import QImage, QPixmap, QClipboard
-from PySide6.QtWidgets import QWidget, QTextEdit, QSizePolicy, QVBoxLayout, QHBoxLayout, QFileDialog, QFrame, QMenu, \
-    QInputDialog
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QWidget, QSizePolicy, QVBoxLayout, QHBoxLayout, QFileDialog, QApplication
+from qfluentwidgets import (
+    ComboBox, CheckBox, SpinBox, DoubleSpinBox, PushButton, ToolButton, PlainTextEdit, LineEdit,
+    FluentIcon, SubtitleLabel, BodyLabel, InfoBar, InfoBarPosition, MessageBoxBase, Dialog,
+    ListWidget, SimpleCardWidget, SingleDirectionScrollArea
+)
 
-from qfluentwidgets import FluentIcon, PushButton, ListWidget, ToolButton, SubtitleLabel, BodyLabel, CardWidget, \
-    ScrollArea, InfoBar, InfoBarPosition, SpinBox, ComboBox, SimpleCardWidget, CheckBox, MessageBoxBase, LineEdit, \
-    DoubleSpinBox, Dialog
-
-from one_dragon.base.operation.one_dragon_context import OneDragonContext
 from one_dragon.base.cv_process.cv_step import CvStep
+from one_dragon.base.operation.one_dragon_context import OneDragonContext
+from one_dragon.utils.i18_utils import gt
 from one_dragon_qt.logic.image_analysis_logic import ImageAnalysisLogic
-from one_dragon_qt.widgets.color_info_dialog import ColorInfoDialog
-from one_dragon_qt.widgets.zoomable_image_label import ZoomableClickImageLabel
+from one_dragon_qt.widgets.color_channel_dialog import ColorChannelDialog
+from one_dragon_qt.widgets.color_tip import ColorTip
 from one_dragon_qt.widgets.vertical_scroll_interface import VerticalScrollInterface
+from one_dragon_qt.widgets.zoomable_image_label import ZoomableClickImageLabel
 
 
 class PipelineNameDialog(MessageBoxBase):
@@ -28,8 +28,11 @@ class PipelineNameDialog(MessageBoxBase):
         self.titleLabel = SubtitleLabel(title, self)
         self.name_edit = LineEdit(self)
 
+        self.yesButton.setText(gt('确定'))
+        self.cancelButton.setText(gt('取消'))
+
         self.name_edit.setText(default_text)
-        self.name_edit.setPlaceholderText('请输入流水线名称')
+        self.name_edit.setPlaceholderText(gt('请输入流水线名称'))
         self.name_edit.setClearButtonEnabled(True)
 
         self.viewLayout.addWidget(self.titleLabel)
@@ -48,7 +51,8 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         self.param_widgets = []  # 用于存储动态创建的参数控件，用于统一删除
         self.param_widget_map = {}  # 用于通过参数名快速查找控件 {param_name: input_widget}
 
-        super().__init__(
+        VerticalScrollInterface.__init__(
+            self,
             content_widget=self._init_content_widget(),
             object_name='devtools_image_analysis_interface',
             parent=parent,
@@ -66,6 +70,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         """
         self.open_btn.clicked.connect(self._on_open_image)
         self.image_label.right_clicked_with_pos.connect(self._on_image_right_clicked)
+        self.image_label.rect_selected.connect(self._on_image_rect_selected)
         self.del_btn.clicked.connect(self._on_delete_step)
         self.copy_btn.clicked.connect(self._on_copy_code_clicked)
         self.up_btn.clicked.connect(self._on_move_step_up)
@@ -73,6 +78,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         self.add_step_combo.currentIndexChanged.connect(self._on_add_step_by_combo)
         self.run_btn.clicked.connect(self._on_run_pipeline)
         self.toggle_view_btn.clicked.connect(self._on_toggle_view)
+        self.color_channel_btn.clicked.connect(self._on_color_channel_clicked)
         self.pipeline_list_widget.currentItemChanged.connect(self._on_pipeline_selection_changed)
 
         # 流水线管理
@@ -98,8 +104,8 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         # 右侧显示面板C
         display_panel_c = self._init_display_panel()
 
-        main_layout.addWidget(control_panel_b, stretch=1)
-        main_layout.addWidget(display_panel_c, stretch=2)
+        main_layout.addWidget(control_panel_b)
+        main_layout.addWidget(display_panel_c, stretch=1)
 
         return main_widget
 
@@ -108,9 +114,11 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         初始化左侧的控制面板 (容器B)，垂直布局
         """
         # 容器B，垂直布局
+        scroll_area = SingleDirectionScrollArea()
+
         control_widget = QWidget()
         control_layout = QVBoxLayout(control_widget)
-        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.setContentsMargins(0, 0, 16, 0)
         control_layout.setSpacing(12)
 
         # B1: 顶部操作按钮
@@ -126,11 +134,14 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         result_widget = self._init_result_widget()
 
         control_layout.addWidget(op_buttons_widget)
-        control_layout.addWidget(pipeline_widget, stretch=1)  # 可伸缩
-        control_layout.addWidget(param_widget, stretch=1)  # 可伸缩
+        control_layout.addWidget(pipeline_widget)
+        control_layout.addWidget(param_widget)
         control_layout.addWidget(result_widget)
 
-        return control_widget
+        scroll_area.setWidget(control_widget)
+        scroll_area.setWidgetResizable(True)
+
+        return scroll_area
 
     def _init_display_panel(self) -> QWidget:
         """
@@ -143,14 +154,9 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         display_layout.setSpacing(12)
 
         # C1: 图像显示区域
-        scroll_area = ScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-
         self.image_label = ZoomableClickImageLabel()
-        scroll_area.setWidget(self.image_label)
 
-        display_layout.addWidget(scroll_area, stretch=1)
+        display_layout.addWidget(self.image_label, stretch=1)
 
         return display_widget
 
@@ -162,12 +168,14 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addStretch(1)
-        self.open_btn = PushButton(text='打开图片', icon=FluentIcon.DOCUMENT)
+        self.open_btn = PushButton(text=gt('打开图片'), icon=FluentIcon.DOCUMENT)
         layout.addWidget(self.open_btn)
-        self.toggle_view_btn = PushButton(text='切换视图')
+        self.toggle_view_btn = PushButton(text=gt('切换视图'))
         layout.addWidget(self.toggle_view_btn)
-        self.run_btn = PushButton(text='执行', icon=FluentIcon.PLAY_SOLID)
+        self.run_btn = PushButton(text=gt('执行'), icon=FluentIcon.PLAY_SOLID)
         layout.addWidget(self.run_btn)
+        self.color_channel_btn = PushButton(text=gt('色彩通道'), icon=FluentIcon.INFO)
+        layout.addWidget(self.color_channel_btn)
         layout.addStretch(1)
         return widget
 
@@ -184,6 +192,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         pipeline_manage_widget = self._init_pipeline_manage_widget()
         layout.addWidget(pipeline_manage_widget)
 
+        # 流水线步骤列表
         self.pipeline_list_widget = ListWidget()
         layout.addWidget(self.pipeline_list_widget)
 
@@ -203,19 +212,19 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         layout.setSpacing(8)
 
         self.pipeline_combo = ComboBox()
-        self.pipeline_combo.setPlaceholderText('选择或新建流水线')
+        self.pipeline_combo.setPlaceholderText(gt('选择或新建流水线'))
         layout.addWidget(self.pipeline_combo, 1)
 
-        self.save_pipeline_btn = PushButton('保存')
+        self.save_pipeline_btn = PushButton(gt('保存'))
         layout.addWidget(self.save_pipeline_btn)
 
-        self.save_as_pipeline_btn = PushButton('另存为')
+        self.save_as_pipeline_btn = PushButton(gt('另存为'))
         layout.addWidget(self.save_as_pipeline_btn)
 
-        self.rename_pipeline_btn = PushButton('重命名')
+        self.rename_pipeline_btn = PushButton(gt('重命名'))
         layout.addWidget(self.rename_pipeline_btn)
 
-        self.delete_pipeline_btn = PushButton('删除')
+        self.delete_pipeline_btn = PushButton(gt('删除'))
         layout.addWidget(self.delete_pipeline_btn)
 
         return widget
@@ -228,14 +237,14 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         btn_layout = QHBoxLayout(btn_widget)
         btn_layout.setContentsMargins(0, 0, 0, 0)
         self.add_step_combo = ComboBox()
-        self.add_step_combo.setPlaceholderText('添加步骤')
+        self.add_step_combo.setPlaceholderText(gt('添加步骤'))
         self.add_step_combo.addItems(self.logic.get_available_step_names())
         self.add_step_combo.setCurrentIndex(-1)
         btn_layout.addStretch(1)
         btn_layout.addWidget(self.add_step_combo)
-        self.del_btn = PushButton('删除步骤')
+        self.del_btn = PushButton(gt('删除步骤'))
         btn_layout.addWidget(self.del_btn)
-        self.copy_btn = PushButton('复制方法')
+        self.copy_btn = PushButton(gt('复制方法'))
         btn_layout.addWidget(self.copy_btn)
         btn_layout.addSpacing(20)
         self.up_btn = ToolButton(FluentIcon.UP)
@@ -254,7 +263,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         self.param_layout.setContentsMargins(12, 8, 12, 8)
         self.param_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.param_title_label = SubtitleLabel('参数设置')
+        self.param_title_label = SubtitleLabel(gt('参数设置'))
         self.param_layout.addWidget(self.param_title_label)
 
         return widget
@@ -263,7 +272,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         """
         创建结果文本框 (B4)
         """
-        self.result_text = QTextEdit()
+        self.result_text = PlainTextEdit()
         self.result_text.setReadOnly(True)
         self.result_text.setObjectName('result_text')
         self.result_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -278,11 +287,11 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
 
         current_row = self.pipeline_list_widget.currentRow()
         if current_row < 0 or current_row >= len(self.logic.pipeline.steps):
-            self.param_title_label.setText('参数设置')
+            self.param_title_label.setText(gt('参数设置'))
             return
 
         step = self.logic.pipeline.steps[current_row]
-        self.param_title_label.setText(f'{step.name} - 参数设置')
+        self.param_title_label.setText(f"{step.name} - {gt('参数设置')}")
 
         description = step.get_description()
         if description:
@@ -398,7 +407,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
             combo_box = ComboBox()
             template_infos = self.logic.get_template_info_list()
             if not template_infos:
-                combo_box.setPlaceholderText('无可用模板')
+                combo_box.setPlaceholderText(gt('无可用模板'))
                 combo_box.setEnabled(False)
             else:
                 template_names = [f"{t.sub_dir}/{t.template_id}" for t in template_infos]
@@ -537,16 +546,17 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
             # 选中被删除项的前一项，或第一项
             new_row = max(0, current_row - 1)
             self.pipeline_list_widget.setCurrentRow(new_row)
+
     def _on_copy_code_clicked(self):
         """
         复制流水线代码到剪贴板
         """
         code = self.logic.get_pipeline_code()
-        clipboard = QClipboard()
+        clipboard = QApplication.clipboard()
         clipboard.setText(code)
         InfoBar.success(
-            title='成功',
-            content='已将方法代码复制到剪贴板',
+            title=gt('成功'),
+            content=gt('已将方法代码复制到剪贴板'),
             duration=3000,
             parent=self,
             position=InfoBarPosition.TOP
@@ -584,8 +594,8 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         """
         if self.logic.context is None:
             InfoBar.error(
-                title='错误',
-                content='请先打开一张图片',
+                title=gt('错误'),
+                content=gt('请先打开一张图片'),
                 duration=3000,
                 parent=self,
                 position=InfoBarPosition.TOP
@@ -594,8 +604,8 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
 
         if self.logic.active_pipeline_name is None:
             InfoBar.error(
-                title='错误',
-                content='请先选择一个流水线',
+                title=gt('错误'),
+                content=gt('请先选择一个流水线'),
                 duration=3000,
                 parent=self,
                 position=InfoBarPosition.TOP
@@ -612,13 +622,13 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
             result_lines.append("\n" + "="*20 + "\n")
 
         if self.logic.context.step_execution_times:
-            result_lines.append("--- 性能分析 ---")
+            result_lines.append(f"--- {gt('性能分析')} ---")
             for step_name, t in self.logic.context.step_execution_times:
                 result_lines.append(f"[{step_name}] - {t:.2f} ms")
             result_lines.append("-" * 20)
-            result_lines.append(f"总耗时: {self.logic.context.total_execution_time:.2f} ms")
+            result_lines.append(f"{gt('总耗时')}: {self.logic.context.total_execution_time:.2f} ms")
 
-        self.result_text.setText('\n'.join(result_lines))
+        self.result_text.setPlainText('\n'.join(result_lines))
         self._update_toggle_button_text()
 
     def _on_toggle_view(self):
@@ -640,7 +650,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         响应打开图片按钮
         """
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "打开图片文件", "", "Image Files (*.png *.jpg *.bmp)"
+            self, gt('打开图片文件'), '', 'Image Files (*.png *.jpg *.bmp)'
         )
 
         if not file_path:
@@ -658,21 +668,29 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         if image_np is None:
             return
 
-        if len(image_np.shape) == 2:  # Mask (灰度图)
-            image_to_show = image_np.copy()
-            height, width = image_to_show.shape
-            bytes_per_line = width
-            q_image = QImage(image_to_show.data, width, height, bytes_per_line, QImage.Format.Format_Grayscale8)
-        elif len(image_np.shape) == 3:  # RGB
-            image_to_show = image_np.copy()
-            height, width, channel = image_to_show.shape
-            bytes_per_line = 3 * width
-            q_image = QImage(image_to_show.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
-        else:
+        # 根据维度判断图像类型并提取基本尺寸信息
+        ndim = image_np.ndim
+        if ndim not in (2, 3):
             return
 
+        height, width = image_np.shape[0], image_np.shape[1]
+
+        # 创建连续内存的 uint8 视图
+        arr = np.ascontiguousarray(image_np.astype(np.uint8, copy=False))
+
+        if ndim == 2:  # 灰度
+            q_image = QImage(arr.data, width, height, int(arr.strides[0]), QImage.Format.Format_Grayscale8).copy()
+        elif ndim == 3:  # 彩色
+            channel = image_np.shape[2]
+            if channel == 3:
+                q_image = QImage(arr.data, width, height, int(arr.strides[0]), QImage.Format.Format_RGB888).copy()
+            elif channel == 4:
+                q_image = QImage(arr.data, width, height, int(arr.strides[0]), QImage.Format.Format_RGBA8888).copy()
+            else:
+                return
+
         pixmap = QPixmap.fromImage(q_image)
-        self.image_label.setPixmap(pixmap)
+        self.image_label.setPixmap(pixmap, preserve_state=True)
 
     def _on_image_right_clicked(self, x: int, y: int):
         """
@@ -681,16 +699,78 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         if self.logic.context is None:
             return
 
-        display_pos = QPoint(x, y)
-        image_pos = self.image_label.map_display_to_image_coords(display_pos)
-        if image_pos is None:
-            return
-
-        color_info = self.logic.get_color_info_at(image_pos.x(), image_pos.y())
+        color_info = self.logic.get_color_info_at(x, y)
         if color_info is None:
             return
 
-        dialog = ColorInfoDialog(color_info, self.window())
+        # 准备颜色信息列表
+        color_infos = []
+
+        # 当前图像信息
+        if color_info.get('display_rgb') and color_info.get('display_hsv'):
+            color_infos.append({
+                'pos': color_info.get('pos'),
+                'rgb': color_info.get('display_rgb'),
+                'hsv': color_info.get('display_hsv'),
+                'title': gt('当前图像')
+            })
+
+        # 原始图像信息
+        if color_info.get('source_rgb') and color_info.get('source_hsv'):
+            color_infos.append({
+                'pos': color_info.get('source_pos'),
+                'rgb': color_info.get('source_rgb'),
+                'hsv': color_info.get('source_hsv'),
+                'title': gt('原始图像')
+            })
+
+        # 显示颜色提示框
+        if color_infos:
+            ColorTip.show_color_tip(self.image_label, color_infos, self)
+
+    def _on_image_rect_selected(self, left: int, top: int, right: int, bottom: int):
+        """
+        响应框选
+        """
+        if self.logic.context is None:
+            return
+        # 轻量反馈：仅提示选择区域坐标，避免误用再次坐标转换
+        InfoBar.success(
+            title=gt('已选择区域'),
+            content=f"({left}, {top}) - ({right}, {bottom})",
+            duration=2000,
+            parent=self,
+            position=InfoBarPosition.TOP
+        )
+
+    def _on_color_channel_clicked(self):
+        """
+        响应色彩通道按钮点击
+        """
+        if self.logic.context is None:
+            InfoBar.error(
+                title=gt('错误'),
+                content=gt('请先打开一张图片'),
+                duration=3000,
+                parent=self,
+                position=InfoBarPosition.TOP
+            )
+            return
+
+        # 获取当前显示的图像
+        display_image = self.logic.get_display_image()
+        if display_image is None:
+            InfoBar.error(
+                title=gt('错误'),
+                content=gt('没有可用的图像进行分析'),
+                duration=3000,
+                parent=self,
+                position=InfoBarPosition.TOP
+            )
+            return
+
+        # 显示色彩通道弹窗
+        dialog = ColorChannelDialog(display_image, self.window())
         dialog.exec()
 
     def _update_pipeline_combo(self):
@@ -735,7 +815,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
             self.logic.pipeline.steps.clear()
         else:
             if not self.logic.load_pipeline(pipeline_name):
-                InfoBar.error('失败', f'流水线 {pipeline_name} 加载失败', parent=self)
+                InfoBar.error(gt('失败'), f"{gt('流水线')} {pipeline_name} {gt('加载失败')}", parent=self)
                 return
 
         self._update_pipeline_list()
@@ -747,15 +827,15 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         保存当前流水线
         """
         if self.logic.save_pipeline(self.logic.active_pipeline_name):
-            InfoBar.success('成功', f'流水线 {self.logic.active_pipeline_name} 已保存', parent=self)
+            InfoBar.success(gt('成功'), f"{gt('流水线')} {self.logic.active_pipeline_name} {gt('已保存')}", parent=self)
         else:
-            InfoBar.error('失败', '流水线保存失败', parent=self)
+            InfoBar.error(gt('失败'), gt('流水线保存失败'), parent=self)
 
     def _on_save_as_pipeline(self):
         """
         另存为流水线
         """
-        dialog = PipelineNameDialog('另存为', parent=self.window())
+        dialog = PipelineNameDialog(gt('另存为'), parent=self.window())
         if dialog.exec():
             text = dialog.name_edit.text()
             if text:
@@ -763,9 +843,9 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
                     self._update_pipeline_combo()
                     self.pipeline_combo.setCurrentText(text)
                     self._update_ui_status()
-                    InfoBar.success('成功', f'流水线已另存为 {text}', parent=self)
+                    InfoBar.success(gt('成功'), f"{gt('流水线已另存为')} {text}", parent=self)
                 else:
-                    InfoBar.error('失败', '另存为失败', parent=self)
+                    InfoBar.error(gt('失败'), gt('另存为失败'), parent=self)
 
     def _on_rename_pipeline(self):
         """
@@ -775,14 +855,14 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         if not old_name:
             return
 
-        dialog = PipelineNameDialog('重命名', default_text=old_name, parent=self.window())
+        dialog = PipelineNameDialog(gt('重命名'), default_text=old_name, parent=self.window())
         if dialog.exec():
             new_name = dialog.name_edit.text()
             if new_name and new_name != old_name:
                 self.logic.rename_pipeline(old_name, new_name)
                 self._update_pipeline_combo()
                 self.pipeline_combo.setCurrentText(new_name)
-                InfoBar.success('成功', f'流水线已重命名为 {new_name}', parent=self)
+                InfoBar.success(gt('成功'), f"{gt('流水线已重命名为')} {new_name}", parent=self)
 
     def _on_delete_pipeline_btn_clicked(self):
         """
@@ -792,7 +872,7 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         if not name_to_delete:
             return
 
-        dialog = Dialog('确认删除', f'您确定要删除流水线 `{name_to_delete}` 吗？\n此操作无法撤销。', self.window())
+        dialog = Dialog(gt('确认删除'), f"{gt('您确定要删除流水线')} `{name_to_delete}` ?\n{gt('此操作无法撤销。')}", self.window())
         if not dialog.exec():
             return
 
@@ -802,4 +882,4 @@ class DevtoolsImageAnalysisInterface(VerticalScrollInterface):
         self._update_pipeline_list()
         self._update_param_display()
         self._update_ui_status()
-        InfoBar.success('成功', f'流水线 {name_to_delete} 已删除', parent=self)
+        InfoBar.success(gt('成功'), f"{gt('流水线')} {name_to_delete} {gt('已删除')}", parent=self)

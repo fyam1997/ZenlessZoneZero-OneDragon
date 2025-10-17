@@ -1,6 +1,7 @@
 import time
-from typing import Optional, ClassVar
+from typing import ClassVar, Optional
 
+from one_dragon.base.operation.application import application_const
 from one_dragon.base.operation.operation import Operation
 from one_dragon.base.operation.operation_base import OperationResult
 from one_dragon.base.operation.operation_edge import node_from
@@ -9,14 +10,21 @@ from one_dragon.base.operation.operation_round_result import OperationRoundResul
 from one_dragon.utils import cv2_utils, str_utils
 from one_dragon.utils.i18_utils import gt
 from one_dragon.utils.log_utils import log
-from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+from zzz_od.application.charge_plan import charge_plan_const
+from zzz_od.application.charge_plan.charge_plan_config import (
+    ChargePlanConfig,
+    ChargePlanItem,
+)
 from zzz_od.auto_battle import auto_battle_utils
 from zzz_od.auto_battle.auto_battle_operator import AutoBattleOperator
 from zzz_od.context.zzz_context import ZContext
-from zzz_od.operation.challenge_mission.check_next_after_battle import ChooseNextOrFinishAfterBattle
+from zzz_od.operation.challenge_mission.check_next_after_battle import (
+    ChooseNextOrFinishAfterBattle,
+)
 from zzz_od.operation.challenge_mission.exit_in_battle import ExitInBattle
 from zzz_od.operation.choose_predefined_team import ChoosePredefinedTeam
 from zzz_od.operation.deploy import Deploy
+from zzz_od.operation.restore_charge import RestoreCharge
 from zzz_od.operation.zzz_operation import ZOperation
 from zzz_od.screen_area.screen_normal_world import ScreenNormalWorldEnum
 
@@ -42,6 +50,11 @@ class ExpertChallenge(ZOperation):
                 gt('专业挑战室', 'game'),
                 gt(plan.mission_type_name, 'game')
             )
+        )
+        self.config: Optional[ChargePlanConfig] = self.ctx.run_context.get_config(
+            app_id=charge_plan_const.APP_ID,
+            instance_idx=self.ctx.current_instance_idx,
+            group_id=application_const.DEFAULT_GROUP_ID,
         )
 
         self.plan: ChargePlanItem = plan
@@ -108,7 +121,18 @@ class ExpertChallenge(ZOperation):
 
         return self.round_success(ExpertChallenge.STATUS_CHARGE_ENOUGH)
 
+    @node_from(from_name='识别电量', status=STATUS_CHARGE_NOT_ENOUGH)
+    @node_from(from_name='下一步', status=STATUS_CHARGE_NOT_ENOUGH)
+    @operation_node(name='恢复电量')
+    def restore_charge(self) -> OperationRoundResult:
+        if not self.config.is_restore_charge_enabled:
+            return self.round_success(ExpertChallenge.STATUS_CHARGE_NOT_ENOUGH)
+        op = RestoreCharge(self.ctx)
+        result = self.round_by_op_result(op.execute())
+        return result if result.is_success else self.round_success(ExpertChallenge.STATUS_CHARGE_NOT_ENOUGH)
+
     @node_from(from_name='识别电量', status=STATUS_CHARGE_ENOUGH)
+    @node_from(from_name='恢复电量', status='恢复电量成功')
     @operation_node(name='下一步', node_max_retry_times=10)  # 部分机器加载较慢 延长出战的识别时间
     def click_next(self) -> OperationRoundResult:
         # 防止前面电量识别错误
@@ -184,15 +208,14 @@ class ExpertChallenge(ZOperation):
     @node_from(from_name='自动战斗')
     @operation_node(name='战斗结束')
     def after_battle(self) -> OperationRoundResult:
-        # TODO 还没有判断战斗失败
         self.can_run_times -= 1
-        self.ctx.charge_plan_config.add_plan_run_times(self.plan)
+        self.config.add_plan_run_times(self.plan)
         return self.round_success()
 
     @node_from(from_name='战斗结束')
     @operation_node(name='判断下一次')
     def check_next(self) -> OperationRoundResult:
-        op = ChooseNextOrFinishAfterBattle(self.ctx, self.can_run_times > 0)
+        op = ChooseNextOrFinishAfterBattle(self.ctx, self.plan.plan_times > self.plan.run_times)
         return self.round_by_op_result(op.execute())
 
     @node_from(from_name='识别电量', success=False)
@@ -215,6 +238,17 @@ class ExpertChallenge(ZOperation):
                                                    success_wait=1, retry_wait=1)
         if result.is_success:
             return self.round_fail(status=ExpertChallenge.STATUS_FIGHT_TIMEOUT)
+        else:
+            return self.round_retry(status=result.status, wait=1)
+
+    @node_from(from_name='自动战斗', status='普通战斗-撤退')
+    @operation_node(name='战斗失败')
+    def battle_fail(self) -> OperationRoundResult:
+        result = self.round_by_find_and_click_area(self.last_screenshot, '战斗画面', '战斗结果-撤退')
+        if result.is_success:
+            return self.round_success(result.status, wait=5)
+
+        return self.round_retry(result.status, wait=1)
 
     def handle_pause(self):
         if self.auto_op is not None:
@@ -249,7 +283,7 @@ def __debug():
     ctx = ZContext()
     ctx.init_by_config()
     ctx.init_ocr()
-    ctx.start_running()
+    ctx.run_context.start_running()
     op = ExpertChallenge(ctx, ChargePlanItem(
         category_name='专业挑战室',
         mission_type_name='恶名·杜拉罕',

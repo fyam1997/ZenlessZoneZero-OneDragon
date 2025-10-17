@@ -152,13 +152,13 @@ class GitService:
         shutil.rmtree(temp_dir_path, ignore_errors=True)  # 删除临时文件夹
         return success, msg
 
-    def fetch_remote_branch(self, remote_name: str = 'origin') -> Tuple[bool, str]:
+    def fetch_remote_code(self) -> Tuple[bool, str]:
         """
         获取远程分支代码
         """
         log.info(gt('获取远程代码'))
-        fetch_result = cmd_utils.run_command(
-            [self.env_config.git_path, 'fetch', remote_name, self.env_config.git_branch])
+        cmd_utils.run_command([self.env_config.git_path, 'remote', 'set-branches', 'origin', '*'])
+        fetch_result = cmd_utils.run_command([self.env_config.git_path, 'fetch', 'origin'])
         if fetch_result is None:
             msg = gt('获取远程代码失败')
             log.error(msg)
@@ -185,7 +185,7 @@ class GitService:
             log.info(gt('更新远程仓库地址'))
 
         log.info(gt('获取远程代码'))
-        fetch_result, msg = self.fetch_remote_branch()
+        fetch_result, msg = self.fetch_remote_code()
         if not fetch_result:
             return False, msg
         elif progress_callback is not None:
@@ -259,15 +259,12 @@ class GitService:
         """
         当前分支是否已经最新 与远程分支一致
         """
-        fetch, msg = self.fetch_remote_branch()
+        fetch, msg = self.fetch_remote_code()
         if not fetch:
             return fetch, msg
-        fetch, msg = self.fetch_remote_branch('fork')
-        if not fetch:
-            return fetch, msg
-
         log.info(gt('检测当前代码是否最新'))
-        if self.is_branch_contained(f'origin/{self.env_config.git_branch}', 'HEAD'):
+        diff_result = cmd_utils.run_command([self.env_config.git_path, 'diff', '--name-only', 'HEAD', f'origin/{self.env_config.git_branch}'])
+        if len(diff_result.strip()) == 0:
             return True, ''
         else:
             return False, gt('与远程分支不一致')
@@ -393,41 +390,51 @@ class GitService:
         log_list = self.fetch_page_commit(0, 1)
         return None if len(log_list) == 0 else log_list[0].commit_id
 
-    def get_latest_tag(self) -> Optional[str]:
+    def get_latest_tag(self) -> tuple[Optional[str], Optional[str]]:
         """
-        获取最新tag
-        @return: 最新的tag名称，如果没有tag则返回None
+        获取最新的稳定版与测试版 tag
+        测试版通过标签名包含 "-beta" 识别
+        若稳定版在测试版前面（列表首个出现即稳定），则认为没有测试版。
+        @return: (稳定版tag, 测试版tag)。若不存在对应类型则为 None。
         """
-        # 从远程获取最新标签
-        result = cmd_utils.run_command([self.env_config.git_path, 'ls-remote', '--refs', '--tags', '--sort=-version:refname', 'origin'])
+        # 从远程获取最新标签（按语义版本倒序）
+        result = cmd_utils.run_command([
+            self.env_config.git_path, 'ls-remote', '--refs', '--tags', '--sort=-version:refname', 'origin'
+        ])
+
+        latest_stable: Optional[str] = None
+        latest_beta: Optional[str] = None
+        first_seen_type: Optional[str] = None  # 'stable' 或 'beta'
+
         if result is not None and result.strip() != '':
             lines = result.strip().split('\n')
-            if lines:
-                first_line = lines[0]
-                # 截取 refs/tags/ 后面的版本号
-                if 'refs/tags/' in first_line:
-                    tag_name = first_line.split('refs/tags/')[1]
-                    return tag_name
+            for line in lines:
+                # 形如：<sha>\trefs/tags/v1.2.3 或 refs/tags/v1.2.3-beta.1
+                if 'refs/tags/' not in line:
+                    continue
 
-        return None
+                tag_name = line.split('refs/tags/')[1]
+                is_beta = '-beta' in tag_name
 
+                # 首个出现的标签决定通道优先级
+                if first_seen_type is None:
+                    if is_beta:
+                        first_seen_type = 'beta'
+                        latest_beta = tag_name
+                        # 继续向后查找第一个稳定版
+                        continue
+                    else:
+                        # 稳定版先出现，则视为无测试版
+                        first_seen_type = 'stable'
+                        latest_stable = tag_name
+                        break
 
-    @staticmethod
-    def is_branch_contained(base_branch: str, target_branch: str) -> bool:
-        """
-        Check if all commits from base_branch are contained in target_branch.
+                # 若先看到的是 beta，则继续找第一个稳定版
+                if first_seen_type == 'beta' and not is_beta and latest_stable is None:
+                    latest_stable = tag_name
+                    break
 
-        Args:
-            base_branch (str): The branch to check if it is contained in target_branch.
-            target_branch (str): The branch that should contain all commits of base_branch.
-
-        Returns:
-            bool: True if base_branch is fully contained in target_branch, False otherwise.
-        """
-        result = cmd_utils.run_command(
-            ["git", "merge-base", "--is-ancestor", base_branch, target_branch],
-        )
-        return result is not None
+        return latest_stable, latest_beta
 
 def __fetch_latest_code():
     project_config = ProjectConfig()

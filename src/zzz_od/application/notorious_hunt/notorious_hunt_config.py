@@ -1,9 +1,11 @@
 from enum import Enum
-from typing import Optional, List
+from typing import List, Optional
 
 from one_dragon.base.config.config_item import ConfigItem
 from one_dragon.base.config.yaml_config import YamlConfig
+from one_dragon.base.operation.application.application_config import ApplicationConfig
 from zzz_od.application.charge_plan.charge_plan_config import ChargePlanItem
+from zzz_od.application.notorious_hunt import notorious_hunt_const
 
 
 class NotoriousHuntLevelEnum(Enum):
@@ -23,13 +25,14 @@ class NotoriousHuntBuffEnum(Enum):
     BUFF_3 = ConfigItem('第三个BUFF', 3)
 
 
-class NotoriousHuntConfig(YamlConfig):
+class NotoriousHuntConfig(ApplicationConfig):
 
-    def __init__(self, instance_idx: Optional[int] = None):
-        YamlConfig.__init__(
+    def __init__(self, instance_idx: int, group_id: str):
+        ApplicationConfig.__init__(
             self,
-            module_name='notorious_hunt',
+            app_id=notorious_hunt_const.APP_ID,
             instance_idx=instance_idx,
+            group_id=group_id,
         )
 
         self.plan_list: List[ChargePlanItem] = []
@@ -59,7 +62,8 @@ class NotoriousHuntConfig(YamlConfig):
             ChargePlanItem('作战', '恶名狩猎', '冥宁芙·双子', None),
             ChargePlanItem('作战', '恶名狩猎', '「霸主侵蚀体·庞培」', None),
             ChargePlanItem('作战', '恶名狩猎', '牲鬼·布林格', None),
-            ChargePlanItem('作战', '恶名狩猎', '秽息司祭', None)
+            ChargePlanItem('作战', '恶名狩猎', '秽息司祭', None),
+            ChargePlanItem('作战', '恶名狩猎', '彷徨猎手', None)
         ]
 
     def save(self):

@@ -81,6 +81,8 @@ class LostVoidChooseCommon(ZOperation):
         result = self.round_by_find_and_click_area(screen=self.last_screenshot, screen_name='迷失之地-通用选择', area_name='按钮-确定',
                                                    success_wait=1, retry_wait=1)
         if result.is_success:
+            self.ctx.lost_void.priority_updated = False
+            log.info("藏品选择成功，已设置优先级更新标志")
             status = result.status if art is None else f'选择 {art.artifact.name}'
             return self.round_success(status)
         else:
@@ -179,7 +181,7 @@ def __debug():
     ctx.init_by_config()
     ctx.init_ocr()
     ctx.lost_void.init_before_run()
-    ctx.start_running()
+    ctx.run_context.start_running()
 
     op = LostVoidChooseCommon(ctx)
     op.execute()
@@ -193,7 +195,7 @@ def __get_get_artifact_pos():
 
     op = LostVoidChooseCommon(ctx)
     from one_dragon.utils import debug_utils
-    screen = debug_utils.get_debug_image('_1749883678280')
+    screen = debug_utils.get_debug_image('484035848-554c6a8d-340e-404d-ab88-8baac21637ca')
     art_list, chosen_list = op.get_artifact_pos(screen)
     print(len(art_list), len(chosen_list))
     cv2_utils.show_image(screen, chosen_list[0] if len(chosen_list) > 0 else None, wait=0)
@@ -202,4 +204,4 @@ def __get_get_artifact_pos():
 
 
 if __name__ == '__main__':
-    __debug()
+    __get_get_artifact_pos()
