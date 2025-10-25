@@ -32,8 +32,5 @@ def __debug():
     app = ZOneDragonApp(ctx)
     app.execute()
 
-    from zzz_od.application.zzz_run_record_dialog import show_app_run_record
-    show_app_run_record(app)
-
 if __name__ == '__main__':
     __debug()

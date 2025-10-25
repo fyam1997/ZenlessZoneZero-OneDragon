@@ -1,21 +1,22 @@
 from one_dragon.base.operation.application_run_record import AppRunRecord
 from zzz_od.application.zzz_application import ZApplication
-from zzz_od.application.zzz_one_dragon_app import ZOneDragonApp
 from zzz_od.context.zzz_context import ZContext
 
 
-def get_app_run_records(app: ZOneDragonApp):
-    apps = app.get_app_list()
+def get_app_run_records():
+    ctx = ZContext()
+    ctx.register_application_factory()
+
     records = []
 
-    for app_item in apps:
+    apps = ctx.notify_config.app_list
+    for key in apps:
         app_item: ZApplication
-        app_name = app_item.op_name
-        record = app_item.run_record
+        record = ctx.run_context.get_run_record(app_id=key, instance_idx=1)
 
         if record:
             records.append({
-                "app_name": app_name,
+                "app_name": key,
                 "status": record.run_status,
                 "run_time": record.run_time,
             })
@@ -24,8 +25,8 @@ def get_app_run_records(app: ZOneDragonApp):
     return records
 
 
-def show_app_run_record(app: ZOneDragonApp):
-    records = get_app_run_records(app)
+def show_app_run_record():
+    records = get_app_run_records()
 
     from PySide6.QtWidgets import (
         QApplication,
@@ -137,12 +138,8 @@ def show_reorder_list():
     window.show()
     qt_app.exec()
 
-def demo():
-    ctx = ZContext()
-    ctx.init_by_config()
-    app = ZOneDragonApp(ctx)
-    show_app_run_record(app)
-
 
 if __name__ == '__main__':
+    def demo():
+        show_app_run_record()
     demo()

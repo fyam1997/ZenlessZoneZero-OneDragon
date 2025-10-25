@@ -82,6 +82,10 @@ class ApplicationLauncher(LauncherBase):
                 self.ctx.controller.close_game()
             if args.shutdown:
                 cmd_utils.shutdown_sys(args.shutdown)
+
+            from zzz_od.application.zzz_run_record_dialog import show_app_run_record
+            show_app_run_record()
+
         finally:
             self.ctx.after_app_shutdown()
 
